@@ -39,5 +39,14 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    next unless target.respond_to?(:product_type) && target.product_type == 'com.apple.product-type.framework'
+
+    phase = target.shell_script_build_phases.find { |item| item.name == 'Strip extended attributes' }
+    phase ||= target.new_shell_script_build_phase('Strip extended attributes')
+    phase.shell_script = <<~SCRIPT
+      if [ -n "$CODESIGNING_FOLDER_PATH" ] && [ -e "$CODESIGNING_FOLDER_PATH" ]; then
+        xattr -cr "$CODESIGNING_FOLDER_PATH" 2>/dev/null || true
+      fi
+    SCRIPT
   end
 end
