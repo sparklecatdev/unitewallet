@@ -1,0 +1,30 @@
+name: unite_wallet
+description: "Unite crypto wallet for web, mobile, and desktop."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  http: ^1.6.0
+  shared_preferences: ^2.5.5
+  qr_flutter: ^4.1.0
+  solana: ^0.32.0+1
+  bip39: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/unite_logo.png
