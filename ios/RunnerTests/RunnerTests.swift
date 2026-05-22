@@ -40,6 +40,7 @@ final class RunnerTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "unite.native.privateKey"), nil)
         XCTAssertNotNil(try secureStore.string(for: WalletStore.SecureKey.mnemonic))
         XCTAssertNotNil(try secureStore.string(for: WalletStore.SecureKey.privateKey))
+        XCTAssertEqual(Set(store.chains.map(\.id)), Set(WalletNetwork.allCases.map(\.rawValue)))
     }
 
     func testImportRejectsInvalidMnemonic() {
@@ -76,6 +77,23 @@ final class RunnerTests: XCTestCase {
         let material = try WalletCoreBridge.createWallet()
         XCTAssertTrue(WalletCoreBridge.validateAddress(material.primaryAddress))
         XCTAssertFalse(WalletCoreBridge.validateAddress("not-a-solana-address"))
+    }
+
+    func testCreateWalletDerivesMultichainAddresses() throws {
+        let material = try WalletCoreBridge.createWallet()
+
+        XCTAssertEqual(Set(material.chains.map(\.id)), Set(WalletNetwork.allCases.map(\.rawValue)))
+        XCTAssertTrue(material.chains.allSatisfy { WalletCoreBridge.validateAddress($0.address, chainID: $0.id) })
+    }
+
+    func testEthereumPrivateKeyImportCreatesEthereumChain() throws {
+        let material = try WalletCoreBridge.importPrivateKey(
+            "4c0883a69102937d6231471b5dbb6204fe5129617082791ef39b4e2f2f6f1f36",
+            chainID: WalletNetwork.ethereum.rawValue
+        )
+
+        XCTAssertEqual(material.chains.map(\.id), [WalletNetwork.ethereum.rawValue])
+        XCTAssertTrue(WalletCoreBridge.validateAddress(material.primaryAddress, chainID: WalletNetwork.ethereum.rawValue))
     }
 
     func testUnlockAppClearsLockedStateWhenAuthenticationSucceeds() async {

@@ -22,6 +22,9 @@ final class WalletStore: ObservableObject {
     @Published var importType: String
     @Published var walletEngine: String
     @Published var chains: [WalletChain]
+    @Published var primaryChainID: String
+    @Published var chainStates: [String: ChainBalanceSnapshot]
+    @Published var isRefreshingChains = false
     @Published var diagnosticsEnabled: Bool
     @Published var biometricLockEnabled: Bool
     @Published var contacts: [WalletContact]
@@ -39,15 +42,18 @@ final class WalletStore: ObservableObject {
     private let defaults: UserDefaults
     private let secureStore: SecureStoring
     private let authenticator: DeviceAuthenticating
+    private let chainDataProvider: ChainDataProviding
 
     init(
         defaults: UserDefaults = .standard,
         secureStore: SecureStoring = KeychainSecureStore.shared,
-        authenticator: DeviceAuthenticating = DeviceSecurity.shared
+        authenticator: DeviceAuthenticating = DeviceSecurity.shared,
+        chainDataProvider: ChainDataProviding = LiveChainDataProvider()
     ) {
         self.defaults = defaults
         self.secureStore = secureStore
         self.authenticator = authenticator
+        self.chainDataProvider = chainDataProvider
 
         let initialHasWallet = defaults.bool(forKey: "unite.native.hasWallet")
         let initialBiometricLockEnabled = defaults.object(forKey: "unite.native.biometricLockEnabled") as? Bool ?? true
@@ -60,6 +66,8 @@ final class WalletStore: ObservableObject {
         importType = defaults.string(forKey: "unite.native.importType") ?? "Generated"
         walletEngine = defaults.string(forKey: "unite.native.walletEngine") ?? "Not initialized"
         chains = Self.loadChains(from: defaults)
+        primaryChainID = defaults.string(forKey: "unite.native.primaryChainID") ?? WalletNetwork.solana.rawValue
+        chainStates = Self.loadChainStates(from: defaults)
         diagnosticsEnabled = defaults.bool(forKey: "unite.native.diagnosticsEnabled")
         biometricLockEnabled = initialBiometricLockEnabled
         contacts = Self.loadContacts(from: defaults)
@@ -73,26 +81,61 @@ final class WalletStore: ObservableObject {
         if chains.isEmpty, !address.isEmpty {
             chains = [
                 WalletChain(
-                    id: "solana",
-                    name: "Solana",
-                    symbol: "SOL",
+                    id: WalletNetwork.solana.rawValue,
+                    name: WalletNetwork.solana.displayName,
+                    symbol: WalletNetwork.solana.symbol,
                     address: address,
                     derivationPath: "Existing secure wallet",
-                    standards: "SLIP-0010 / Ed25519"
+                    standards: WalletNetwork.solana.derivationStandard
                 )
             ]
         }
 
         upgradeStoredChainsIfPossible()
+        normalizePrimaryChain()
+        balanceSOL = nativeBalance(for: WalletNetwork.solana.rawValue)
     }
 
     var shortAddress: String {
-        guard address.count > 12 else { return address.isEmpty ? "No wallet" : address }
-        return "\(address.prefix(5))...\(address.suffix(5))"
+        let activeAddress = currentChain?.address ?? address
+        guard activeAddress.count > 12 else { return activeAddress.isEmpty ? "No wallet" : activeAddress }
+        return "\(activeAddress.prefix(5))...\(activeAddress.suffix(5))"
     }
 
     var visibleEngineName: String {
         walletEngine.isEmpty ? "Unite Core" : walletEngine
+    }
+
+    var currentChain: WalletChain? {
+        chains.first(where: { $0.id == primaryChainID }) ?? chains.first
+    }
+
+    var portfolioValue: Double {
+        chains.reduce(0) { partial, chain in
+            partial + (fiatValue(for: chain) ?? 0)
+        }
+    }
+
+    var supportedNetworksSummary: String {
+        chains.map(\.symbol).joined(separator: " • ")
+    }
+
+    var chainSyncStateLabel: String {
+        if isRefreshingChains { return "Syncing" }
+        let states = chainStates.values.map(\.status)
+        if states.contains(.failed) { return "Review" }
+        if states.contains(.synced) { return "Live" }
+        return hasWallet ? "Idle" : "Setup"
+    }
+
+    var lastChainSyncDetail: String {
+        if let latest = chainStates.values.compactMap(\.updatedAt).max() {
+            return "Balances updated \(latest.formatted(date: .omitted, time: .shortened))"
+        }
+        if isRefreshingChains {
+            return "Fetching balances from live networks"
+        }
+        return "Pull to sync Bitcoin, Ethereum, and Solana balances"
     }
 
     var serviceStatuses: [WalletServiceStatus] {
@@ -100,24 +143,24 @@ final class WalletStore: ObservableObject {
             .init(name: "Wallet security", detail: "Recovery material stays on this device", state: hasWallet ? "Ready" : "Setup"),
             .init(name: "Screen lock", detail: biometricLockEnabled ? "Sensitive views require device authentication" : "Turn on device authentication", state: biometricLockEnabled ? "On" : "Review"),
             .init(name: "Market data", detail: marketUpdatedAt.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Pull to refresh when you need it", state: "Read-only"),
-            .init(name: "Beta access", detail: "Create, import, backup, receive, and market watch", state: "Active")
+            .init(name: "Network sync", detail: lastChainSyncDetail, state: chainSyncStateLabel)
         ]
     }
 
     var activities: [WalletActivity] {
         [
-            .init(icon: "checkmark.seal", title: "Wallet ready", detail: "Your Solana beta wallet is set up and available on this device.", amount: "", status: hasWallet ? "Ready" : "Setup"),
+            .init(icon: "checkmark.seal", title: "Wallet ready", detail: "Your multichain wallet is available on this device with \(chains.count) supported networks.", amount: "", status: hasWallet ? "Ready" : "Setup"),
             .init(icon: "lock.shield", title: "Screen lock", detail: biometricLockEnabled ? "Recovery and wallet details stay behind device authentication." : "Turn on device authentication before wider testing.", amount: "", status: biometricLockEnabled ? "On" : "Review"),
             .init(icon: "key.viewfinder", title: "Backup reminder", detail: backupConfirmed ? "Your recovery material has been confirmed and can be reviewed later." : "Confirm your recovery material before moving funds.", amount: "", status: backupConfirmed ? "Saved" : "Action"),
-            .init(icon: "chart.line.uptrend.xyaxis", title: "Market watch", detail: marketUpdatedAt == nil ? "Read-only prices are ready when you refresh." : "Read-only prices are up to date for this beta.", amount: "", status: marketUpdatedAt == nil ? "Idle" : "Live")
+            .init(icon: "arrow.trianglehead.2.clockwise", title: "Chain sync", detail: lastChainSyncDetail, amount: "", status: chainSyncStateLabel)
         ]
     }
 
     var notifications: [WalletNotification] {
         [
             .init(title: "Backup", detail: backupConfirmed ? "Your recovery material is available later behind device authentication." : "Confirm and store your recovery material offline before using the wallet.", severity: backupConfirmed ? "OK" : "Action"),
-            .init(title: "What this beta covers", detail: "This beta is focused on create, import, backup, receive, and read-only markets.", severity: "Guide"),
-            .init(title: "What comes later", detail: "Send, swap, buy, alerts, and custom network controls stay out of the way until they are ready.", severity: "Note")
+            .init(title: "What this build covers", detail: "This build derives Bitcoin, Ethereum, and Solana addresses from one recovery phrase and syncs native balances from live networks.", severity: "Guide"),
+            .init(title: "Current send scope", detail: "Receive and balance sync are live across supported chains. Transaction sending still needs chain-specific signing and broadcast flows.", severity: "Note")
         ]
     }
 
@@ -132,7 +175,7 @@ final class WalletStore: ObservableObject {
         }
     }
 
-    func importWallet(secret: String, asPrivateKey: Bool) -> String? {
+    func importWallet(secret: String, asPrivateKey: Bool, privateKeyChainID: String = WalletNetwork.solana.rawValue) -> String? {
         let cleanSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanSecret.isEmpty else {
             return "Enter a recovery phrase or private key."
@@ -140,7 +183,7 @@ final class WalletStore: ObservableObject {
 
         do {
             if asPrivateKey {
-                let material = try WalletCoreBridge.importPrivateKey(cleanSecret)
+                let material = try WalletCoreBridge.importPrivateKey(cleanSecret, chainID: privateKeyChainID)
                 try apply(material: material, importType: "Private key", backupConfirmed: true)
             } else {
                 let words = cleanSecret.split(whereSeparator: \.isWhitespace)
@@ -182,6 +225,13 @@ final class WalletStore: ObservableObject {
     func setMarketAutoRefreshEnabled(_ enabled: Bool) {
         marketAutoRefreshEnabled = enabled
         defaults.set(enabled, forKey: "unite.native.marketAutoRefreshEnabled")
+    }
+
+    func setPrimaryChain(_ chainID: String) {
+        guard chains.contains(where: { $0.id == chainID }) else { return }
+        primaryChainID = chainID
+        address = currentChain?.address ?? address
+        defaults.set(chainID, forKey: "unite.native.primaryChainID")
     }
 
     func lockApp() {
@@ -258,6 +308,8 @@ final class WalletStore: ObservableObject {
         importType = "Generated"
         walletEngine = "Not initialized"
         chains = []
+        primaryChainID = WalletNetwork.solana.rawValue
+        chainStates = [:]
         balanceSOL = 0
         isAppLocked = false
         unlockErrorMessage = nil
@@ -267,6 +319,8 @@ final class WalletStore: ObservableObject {
         defaults.removeObject(forKey: "unite.native.importType")
         defaults.removeObject(forKey: "unite.native.walletEngine")
         defaults.removeObject(forKey: "unite.native.chains")
+        defaults.removeObject(forKey: "unite.native.primaryChainID")
+        defaults.removeObject(forKey: "unite.native.chainStates")
         defaults.removeObject(forKey: "unite.native.mnemonic")
         defaults.removeObject(forKey: "unite.native.privateKey")
         try? secureStore.removeValue(for: SecureKey.mnemonic)
@@ -314,15 +368,39 @@ final class WalletStore: ObservableObject {
         }
     }
 
+    func refreshChains() async {
+        guard hasWallet, !isRefreshingChains else { return }
+        isRefreshingChains = true
+        defer {
+            isRefreshingChains = false
+            balanceSOL = nativeBalance(for: WalletNetwork.solana.rawValue)
+        }
+
+        let results = await chainDataProvider.fetchBalances(for: chains)
+        for chain in chains {
+            if let result = results[chain.id] {
+                chainStates[chain.id] = result
+            } else {
+                chainStates[chain.id] = ChainBalanceSnapshot(balance: 0, updatedAt: nil, status: .failed, message: "Balance unavailable")
+            }
+        }
+        persistChainStates()
+        diagnostic("Chain balance refresh finished.")
+    }
+
     private func apply(material: WalletMaterial, importType: String, backupConfirmed: Bool) throws {
         mnemonic = material.mnemonic
         privateKey = material.privateKey
-        address = material.primaryAddress
         self.importType = importType
         walletEngine = material.engine
         chains = material.chains
+        primaryChainID = material.chains.first(where: { $0.id == WalletNetwork.solana.rawValue })?.id ?? material.chains.first?.id ?? WalletNetwork.solana.rawValue
+        address = chains.first(where: { $0.id == primaryChainID })?.address ?? material.primaryAddress
         hasWallet = true
         self.backupConfirmed = backupConfirmed
+        chainStates = Dictionary(uniqueKeysWithValues: material.chains.map { chain in
+            (chain.id, ChainBalanceSnapshot(balance: 0, updatedAt: nil, status: .idle, message: "Waiting for first sync"))
+        })
         balanceSOL = 0
         try persistWallet()
         isAppLocked = biometricLockEnabled
@@ -342,13 +420,43 @@ final class WalletStore: ObservableObject {
             }
 
             guard material.chains != chains else { return }
-            address = material.primaryAddress
             walletEngine = material.engine
             chains = material.chains
+            normalizePrimaryChain()
+            address = currentChain?.address ?? material.primaryAddress
             try persistWallet()
         } catch {
             diagnostic("Stored chain upgrade skipped.")
         }
+    }
+
+    private func normalizePrimaryChain() {
+        if chains.contains(where: { $0.id == primaryChainID }) {
+            return
+        }
+        primaryChainID = chains.first(where: { $0.id == WalletNetwork.solana.rawValue })?.id ?? chains.first?.id ?? WalletNetwork.solana.rawValue
+    }
+
+    func balanceSnapshot(for chain: WalletChain) -> ChainBalanceSnapshot {
+        chainStates[chain.id] ?? ChainBalanceSnapshot(balance: 0, updatedAt: nil, status: .idle, message: "Waiting for first sync")
+    }
+
+    func nativeBalance(for chainID: String) -> Double {
+        NSDecimalNumber(decimal: chainStates[chainID]?.balance ?? 0).doubleValue
+    }
+
+    func formattedBalance(for chain: WalletChain) -> String {
+        let balance = chainStates[chain.id]?.balance ?? 0
+        return balance.formattedString(maxFractionDigits: chain.network?.fractionDigits ?? 6)
+    }
+
+    func fiatValue(for chain: WalletChain) -> Double? {
+        guard let network = chain.network,
+              let asset = marketAssets.first(where: { $0.id == network.coinGeckoID }),
+              let price = asset.price else {
+            return nil
+        }
+        return nativeBalance(for: chain.id) * price
     }
 
     private func diagnostic(_ message: String) {
@@ -367,6 +475,7 @@ final class WalletStore: ObservableObject {
         defaults.set(address, forKey: "unite.native.address")
         defaults.set(importType, forKey: "unite.native.importType")
         defaults.set(walletEngine, forKey: "unite.native.walletEngine")
+        defaults.set(primaryChainID, forKey: "unite.native.primaryChainID")
         defaults.set(diagnosticsEnabled, forKey: "unite.native.diagnosticsEnabled")
         defaults.set(biometricLockEnabled, forKey: "unite.native.biometricLockEnabled")
         defaults.set(marketAutoRefreshEnabled, forKey: "unite.native.marketAutoRefreshEnabled")
@@ -374,6 +483,7 @@ final class WalletStore: ObservableObject {
         if let data = try? JSONEncoder().encode(chains) {
             defaults.set(data, forKey: "unite.native.chains")
         }
+        persistChainStates()
         try secureStore.set(mnemonic, for: SecureKey.mnemonic)
         try secureStore.set(privateKey, for: SecureKey.privateKey)
     }
@@ -381,6 +491,17 @@ final class WalletStore: ObservableObject {
     private static func loadChains(from defaults: UserDefaults) -> [WalletChain] {
         guard let data = defaults.data(forKey: "unite.native.chains") else { return [] }
         return (try? JSONDecoder().decode([WalletChain].self, from: data)) ?? []
+    }
+
+    private func persistChainStates() {
+        if let data = try? JSONEncoder().encode(chainStates) {
+            defaults.set(data, forKey: "unite.native.chainStates")
+        }
+    }
+
+    private static func loadChainStates(from defaults: UserDefaults) -> [String: ChainBalanceSnapshot] {
+        guard let data = defaults.data(forKey: "unite.native.chainStates") else { return [:] }
+        return (try? JSONDecoder().decode([String: ChainBalanceSnapshot].self, from: data)) ?? [:]
     }
 
     private func persistContacts() {
@@ -403,6 +524,102 @@ final class WalletStore: ObservableObject {
     private static func loadMarketPriceAlerts(from defaults: UserDefaults) -> [MarketPriceAlert] {
         guard let data = defaults.data(forKey: "unite.native.marketPriceAlerts") else { return [] }
         return (try? JSONDecoder().decode([MarketPriceAlert].self, from: data)) ?? []
+    }
+}
+
+enum ChainSyncStatus: String, Codable {
+    case idle
+    case synced
+    case failed
+}
+
+struct ChainBalanceSnapshot: Codable, Equatable {
+    var balance: Decimal
+    var updatedAt: Date?
+    var status: ChainSyncStatus
+    var message: String?
+}
+
+protocol ChainDataProviding {
+    func fetchBalances(for chains: [WalletChain]) async -> [String: ChainBalanceSnapshot]
+}
+
+struct LiveChainDataProvider: ChainDataProviding {
+    func fetchBalances(for chains: [WalletChain]) async -> [String: ChainBalanceSnapshot] {
+        await withTaskGroup(of: (String, ChainBalanceSnapshot).self) { group in
+            for chain in chains {
+                group.addTask {
+                    let snapshot = await fetchBalance(for: chain)
+                    return (chain.id, snapshot)
+                }
+            }
+
+            var balances: [String: ChainBalanceSnapshot] = [:]
+            for await (chainID, snapshot) in group {
+                balances[chainID] = snapshot
+            }
+            return balances
+        }
+    }
+
+    private func fetchBalance(for chain: WalletChain) async -> ChainBalanceSnapshot {
+        guard let network = chain.network else {
+            return ChainBalanceSnapshot(balance: 0, updatedAt: nil, status: .failed, message: "Unsupported network")
+        }
+
+        do {
+            let balance: Decimal
+            switch network {
+            case .bitcoin:
+                balance = try await bitcoinBalance(address: chain.address)
+            case .ethereum:
+                balance = try await ethereumBalance(address: chain.address)
+            case .solana:
+                balance = try await solanaBalance(address: chain.address)
+            }
+
+            return ChainBalanceSnapshot(balance: balance, updatedAt: Date(), status: .synced, message: nil)
+        } catch {
+            return ChainBalanceSnapshot(balance: 0, updatedAt: nil, status: .failed, message: error.localizedDescription)
+        }
+    }
+
+    private func bitcoinBalance(address: String) async throws -> Decimal {
+        let url = URL(string: "https://blockstream.info/api/address/\(address)")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+
+        let payload = try JSONDecoder().decode(BlockstreamAddressPayload.self, from: data)
+        let sats = payload.chainStats.fundedTxoSum - payload.chainStats.spentTxoSum + payload.mempoolStats.fundedTxoSum - payload.mempoolStats.spentTxoSum
+        return Decimal(sats) / Decimal(100_000_000)
+    }
+
+    private func ethereumBalance(address: String) async throws -> Decimal {
+        let request = JSONRPCRequest(method: "eth_getBalance", params: [address, "latest"])
+        let result = try await postJSONRPC(request, url: URL(string: "https://ethereum-rpc.publicnode.com")!, responseType: EthereumBalanceResponse.self)
+        return Decimal(hexString: result.result) / Decimal(string: "1000000000000000000")!
+    }
+
+    private func solanaBalance(address: String) async throws -> Decimal {
+        let request = JSONRPCRequest(method: "getBalance", params: [address, ["commitment": "confirmed"]])
+        let result = try await postJSONRPC(request, url: URL(string: "https://api.mainnet-beta.solana.com")!, responseType: SolanaBalanceResponse.self)
+        return Decimal(result.result.value) / Decimal(1_000_000_000)
+    }
+
+    private func postJSONRPC<Response: Decodable>(_ request: JSONRPCRequest, url: URL, responseType: Response.Type) async throws -> Response {
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONEncoder().encode(request)
+
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+
+        return try JSONDecoder().decode(Response.self, from: data)
     }
 }
 
@@ -545,4 +762,113 @@ struct CoinGeckoMarketAsset: Decodable {
 
 struct CoinGeckoSparkline: Decodable, Equatable {
     let price: [Double]
+}
+
+private struct JSONRPCRequest: Encodable {
+    let jsonrpc = "2.0"
+    let id = 1
+    let method: String
+    let params: [AnyEncodable]
+
+    init(method: String, params: [Any]) {
+        self.method = method
+        self.params = params.map(AnyEncodable.init)
+    }
+}
+
+private struct EthereumBalanceResponse: Decodable {
+    let result: String
+}
+
+private struct SolanaBalanceResponse: Decodable {
+    let result: SolanaBalanceValue
+}
+
+private struct SolanaBalanceValue: Decodable {
+    let value: Int64
+}
+
+private struct BlockstreamAddressPayload: Decodable {
+    let chainStats: BlockstreamStats
+    let mempoolStats: BlockstreamStats
+
+    enum CodingKeys: String, CodingKey {
+        case chainStats = "chain_stats"
+        case mempoolStats = "mempool_stats"
+    }
+}
+
+private struct BlockstreamStats: Decodable {
+    let fundedTxoSum: Int64
+    let spentTxoSum: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case fundedTxoSum = "funded_txo_sum"
+        case spentTxoSum = "spent_txo_sum"
+    }
+}
+
+private struct AnyEncodable: Encodable {
+    private let encodeBlock: (Encoder) throws -> Void
+
+    init(_ value: Any) {
+        self.encodeBlock = { encoder in
+            var container = encoder.singleValueContainer()
+            switch value {
+            case let string as String:
+                try container.encode(string)
+            case let int as Int:
+                try container.encode(int)
+            case let int64 as Int64:
+                try container.encode(int64)
+            case let bool as Bool:
+                try container.encode(bool)
+            case let dictionary as [String: String]:
+                try container.encode(dictionary)
+            case let dictionary as [String: AnyEncodable]:
+                try container.encode(dictionary)
+            default:
+                if let nested = value as? [String: Any] {
+                    try container.encode(nested.mapValues(AnyEncodable.init))
+                } else if let array = value as? [Any] {
+                    try container.encode(array.map(AnyEncodable.init))
+                } else {
+                    throw EncodingError.invalidValue(value, .init(codingPath: container.codingPath, debugDescription: "Unsupported JSON-RPC parameter"))
+                }
+            }
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try encodeBlock(encoder)
+    }
+}
+
+private extension Decimal {
+    init(hexString: String) {
+        self = 0
+        let digits = hexString.replacingOccurrences(of: "0x", with: "")
+        for scalar in digits.lowercased().unicodeScalars {
+            let value: Decimal
+            switch scalar {
+            case "0"..."9":
+                value = Decimal(Int(scalar.value - 48))
+            case "a"..."f":
+                value = Decimal(Int(scalar.value - 87))
+            default:
+                continue
+            }
+            self *= 16
+            self += value
+        }
+    }
+
+    func formattedString(maxFractionDigits: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = maxFractionDigits
+        formatter.minimumFractionDigits = 0
+        formatter.groupingSeparator = ","
+        return formatter.string(from: self as NSDecimalNumber) ?? "0"
+    }
 }

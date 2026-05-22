@@ -10,12 +10,13 @@ struct WalletView: View {
     @State private var showingGuide = false
     @State private var showingSecretReveal = false
 
-    private var solAsset: MarketAsset {
-        store.marketAssets.first(where: { $0.id == "solana" }) ?? MarketAsset.defaults[2]
+    private var activeChain: WalletChain? {
+        store.currentChain
     }
 
-    private var portfolioValue: Double {
-        store.balanceSOL * (solAsset.price ?? 0)
+    private var activeAsset: MarketAsset? {
+        guard let network = activeChain?.network else { return nil }
+        return store.marketAssets.first(where: { $0.id == network.coinGeckoID })
     }
 
     var body: some View {
@@ -30,10 +31,11 @@ struct WalletView: View {
                 .padding(.top, 12)
 
                 WalletHero(
-                    portfolioValue: portfolioValue,
-                    change: solAsset.change24h ?? 0,
+                    portfolioValue: store.portfolioValue,
+                    change: activeAsset?.change24h ?? 0,
                     address: store.shortAddress,
-                    chainCount: store.chains.count
+                    chainCount: store.chains.count,
+                    networkSummary: store.supportedNetworksSummary
                 )
 
                 WalletPrimaryActions(
@@ -44,10 +46,7 @@ struct WalletView: View {
 
                 WalletAssetSection(
                     selectedList: $selectedList,
-                    solAsset: solAsset,
-                    solAmount: store.balanceSOL,
-                    chains: store.chains,
-                    totalChainCount: store.chains.count
+                    chains: store.chains
                 )
 
                 HistoryPreview(activities: store.activities)
@@ -90,6 +89,7 @@ struct WalletView: View {
             if store.marketUpdatedAt == nil {
                 await store.refreshMarket()
             }
+            await store.refreshChains()
         }
     }
 }
@@ -162,10 +162,11 @@ private struct WalletHero: View {
     let change: Double
     let address: String
     let chainCount: Int
+    let networkSummary: String
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Solana beta")
+            Text("Multichain wallet")
                 .roundedFont(14, weight: .black)
                 .foregroundStyle(UniteTheme.secondaryText)
                 .padding(.horizontal, 12)
@@ -177,7 +178,7 @@ private struct WalletHero: View {
                 .minimumScaleFactor(0.78)
                 .lineLimit(1)
 
-            Text("Wallet value on supported beta network")
+            Text("Live balance view across supported networks")
                 .roundedFont(14, weight: .medium)
                 .foregroundStyle(UniteTheme.secondaryText)
 
@@ -191,10 +192,16 @@ private struct WalletHero: View {
 
             HStack(spacing: 8) {
                 Text(address)
-                Text("\(chainCount) supported beta chain")
+                Text("\(chainCount) networks")
             }
             .roundedFont(13, weight: .bold)
             .foregroundStyle(UniteTheme.muted)
+
+            if !networkSummary.isEmpty {
+                Text(networkSummary)
+                    .roundedFont(12, weight: .bold)
+                    .foregroundStyle(UniteTheme.soft)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 14)
@@ -246,49 +253,59 @@ private struct ReceiveSheet: View {
     @EnvironmentObject private var store: WalletStore
     @State private var copied = false
 
-    private var selectedChain: WalletChain {
-        store.chains.first ?? WalletChain(id: "solana", name: "Solana", symbol: "SOL", address: store.address, derivationPath: "", standards: "")
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             UniteSectionHeader(
                 eyebrow: "Receive",
-                title: "Share this Solana address",
-                detail: "Use this address for Solana transfers during the beta."
+                title: "Share a wallet address",
+                detail: "Choose the network first, then share the matching address."
             )
 
-            FakeQRCode(seed: selectedChain.address)
-                .frame(width: 220, height: 220)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(selectedChain.name)
-                    .roundedFont(17, weight: .black)
-                Text(selectedChain.address)
-                    .roundedFont(14, weight: .bold)
-                    .foregroundStyle(UniteTheme.soft)
-                    .textSelection(.enabled)
-            }
-            .padding(16)
-            .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-            UniteButton(
-                title: copied ? "Address copied" : "Copy address",
-                systemImage: copied ? "checkmark" : "doc.on.doc",
-                tone: copied ? .secondary : .primary
-            ) {
-                UIPasteboard.general.string = selectedChain.address
-                copied = true
+            if store.chains.count > 1 {
+                Picker("Receive network", selection: Binding(
+                    get: { store.primaryChainID },
+                    set: { store.setPrimaryChain($0) }
+                )) {
+                    ForEach(store.chains) { chain in
+                        Text(chain.name).tag(chain.id)
+                    }
+                }
+                .pickerStyle(.segmented)
             }
 
-            UniteBanner(
-                title: "Solana only",
-                detail: "Only receive assets on Solana during this beta. Funds sent from another network can be lost permanently.",
-                tone: .caution,
-                icon: "exclamationmark.shield"
-            )
+            if let selectedChain = store.currentChain {
+                FakeQRCode(seed: selectedChain.address)
+                    .frame(width: 220, height: 220)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(selectedChain.name)
+                        .roundedFont(17, weight: .black)
+                    Text(selectedChain.address)
+                        .roundedFont(14, weight: .bold)
+                        .foregroundStyle(UniteTheme.soft)
+                        .textSelection(.enabled)
+                }
+                .padding(16)
+                .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                UniteButton(
+                    title: copied ? "Address copied" : "Copy address",
+                    systemImage: copied ? "checkmark" : "doc.on.doc",
+                    tone: copied ? .secondary : .primary
+                ) {
+                    UIPasteboard.general.string = selectedChain.address
+                    copied = true
+                }
+
+                UniteBanner(
+                    title: "Match the network exactly",
+                    detail: "Only send \(selectedChain.symbol) assets to this \(selectedChain.name) address. Cross-network transfers can be lost permanently.",
+                    tone: .caution,
+                    icon: "exclamationmark.shield"
+                )
+            }
 
             Spacer()
         }
@@ -336,7 +353,13 @@ private struct WalletSearchView: View {
                         )
                     } else {
                         ForEach(results) { chain in
-                            WalletChainRow(chain: chain)
+                            WalletChainRow(
+                                chain: chain,
+                                balance: store.formattedBalance(for: chain),
+                                fiatValue: store.fiatValue(for: chain),
+                                snapshot: store.balanceSnapshot(for: chain),
+                                isSelected: chain.id == store.primaryChainID
+                            )
                                 .padding(14)
                                 .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                         }
@@ -400,15 +423,13 @@ private extension Array {
 }
 
 private struct WalletAssetSection: View {
+    @EnvironmentObject private var store: WalletStore
     @Binding var selectedList: WalletList
-    let solAsset: MarketAsset
-    let solAmount: Double
     let chains: [WalletChain]
-    let totalChainCount: Int
 
     var body: some View {
         VStack(spacing: 16) {
-            SectionTitle(title: "Assets", trailing: "Wallet beta")
+            SectionTitle(title: "Assets", trailing: "Live networks")
             HStack(spacing: 22) {
                 ForEach(WalletList.allCases, id: \.self) { list in
                     Button {
@@ -430,13 +451,21 @@ private struct WalletAssetSection: View {
             }
 
             if selectedList == .crypto {
-                WalletTokenRow(asset: solAsset, amount: solAmount)
                 ForEach(chains) { chain in
-                    WalletChainRow(chain: chain)
+                    Button {
+                        store.setPrimaryChain(chain.id)
+                    } label: {
+                        WalletChainRow(
+                            chain: chain,
+                            balance: store.formattedBalance(for: chain),
+                            fiatValue: store.fiatValue(for: chain),
+                            snapshot: store.balanceSnapshot(for: chain),
+                            isSelected: chain.id == store.primaryChainID
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                if totalChainCount == 1 {
-                    BetaInfoCard()
-                }
+                BetaInfoCard()
             } else {
                 WatchlistPreview()
             }
@@ -446,6 +475,10 @@ private struct WalletAssetSection: View {
 
 private struct WalletChainRow: View {
     let chain: WalletChain
+    let balance: String
+    let fiatValue: Double?
+    let snapshot: ChainBalanceSnapshot
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 14) {
@@ -471,15 +504,18 @@ private struct WalletChainRow: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 5) {
-                Text("0.0000")
+                Text(balance)
                     .roundedFont(19, weight: .black)
-                Text(chain.shortAddress)
+                Text(usd(fiatValue))
                     .roundedFont(13, weight: .bold)
-                    .foregroundStyle(UniteTheme.muted)
+                    .foregroundStyle(snapshot.status == .failed ? UniteTheme.red : UniteTheme.muted)
+                Text(chain.shortAddress)
+                    .roundedFont(12, weight: .bold)
+                    .foregroundStyle(UniteTheme.soft)
             }
         }
         .padding(16)
-        .background(UniteTheme.panel, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background((isSelected ? UniteTheme.raised : UniteTheme.panel), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
@@ -548,8 +584,8 @@ private struct WalletTokenRow: View {
 private struct BetaInfoCard: View {
     var body: some View {
         UniteBanner(
-            title: "Current beta scope",
-            detail: "This wallet currently focuses on secure setup, backup, receive, and read-only market tracking.",
+            title: "Multichain runtime live",
+            detail: "Bitcoin, Ethereum, and Solana addresses and balances now sync from live networks in this build.",
             tone: .neutral,
             icon: "checkmark.shield"
         )

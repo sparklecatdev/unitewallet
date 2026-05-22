@@ -92,6 +92,7 @@ struct ImportWalletView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: WalletStore
     @State private var importPrivateKey = false
+    @State private var privateKeyNetwork = WalletNetwork.solana
     @State private var secret = ""
     @State private var errorMessage: String?
     @State private var isImporting = false
@@ -111,7 +112,15 @@ struct ImportWalletView: View {
             }
             .pickerStyle(.segmented)
 
-            Text(importPrivateKey ? "Use a supported Solana private key. Keep spacing and characters exactly as exported." : "Use a 12, 15, 18, 21, or 24 word recovery phrase with the original order intact.")
+            if importPrivateKey {
+                Picker("Private key network", selection: $privateKeyNetwork) {
+                    Text("Ethereum").tag(WalletNetwork.ethereum)
+                    Text("Solana").tag(WalletNetwork.solana)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Text(importPrivateKey ? "Choose the network first, then paste the matching private key exactly as exported." : "Use a 12, 15, 18, 21, or 24 word recovery phrase with the original order intact. Phrase imports derive Bitcoin, Ethereum, and Solana accounts together.")
                 .roundedFont(13, weight: .medium)
                 .foregroundStyle(UniteTheme.secondaryText)
 
@@ -150,7 +159,7 @@ struct ImportWalletView: View {
                     errorMessage = nil
                     successMessage = nil
                     Task {
-                        if let message = store.importWallet(secret: secret, asPrivateKey: importPrivateKey) {
+                        if let message = store.importWallet(secret: secret, asPrivateKey: importPrivateKey, privateKeyChainID: privateKeyNetwork.rawValue) {
                             errorMessage = message
                             isImporting = false
                         } else {
