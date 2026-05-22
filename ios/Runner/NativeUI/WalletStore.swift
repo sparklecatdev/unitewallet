@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 @MainActor
@@ -5,6 +6,8 @@ final class WalletStore: ObservableObject {
     enum SecureKey {
         static let mnemonic = "wallet.mnemonic"
         static let privateKey = "wallet.privateKey"
+        static let passcodeHash = "wallet.passcodeHash"
+        static let passcodeSalt = "wallet.passcodeSalt"
     }
 
     enum SupportResource {
@@ -12,6 +15,31 @@ final class WalletStore: ObservableObject {
         static let privacyURL = URL(string: "https://unitewallet.app/privacy")!
         static let termsURL = URL(string: "https://unitewallet.app/terms")!
         static let feedbackURL = URL(string: "https://unitewallet.app/beta-feedback")!
+    }
+
+    private enum DefaultsKey {
+        static let hasWallet = "unite.native.hasWallet"
+        static let backupConfirmed = "unite.native.backupConfirmed"
+        static let address = "unite.native.address"
+        static let importType = "unite.native.importType"
+        static let walletEngine = "unite.native.walletEngine"
+        static let chains = "unite.native.chains"
+        static let primaryChainID = "unite.native.primaryChainID"
+        static let chainStates = "unite.native.chainStates"
+        static let diagnosticsEnabled = "unite.native.diagnosticsEnabled"
+        static let biometricLockEnabled = "unite.native.biometricLockEnabled"
+        static let marketAutoRefreshEnabled = "unite.native.marketAutoRefreshEnabled"
+        static let watchedMarketAssetIDs = "unite.native.watchedMarketAssetIDs"
+        static let contacts = "unite.native.contacts"
+        static let marketPriceAlerts = "unite.native.marketPriceAlerts"
+        static let assetLayout = "unite.native.assetLayout"
+        static let hideSmallBalances = "unite.native.hideSmallBalances"
+        static let hideNFTs = "unite.native.hideNFTs"
+        static let lastUnlockTimestamp = "unite.native.lastUnlockTimestamp"
+    }
+
+    private enum SyncKey {
+        static let encryptedWallet = "unite.sync.wallet"
     }
 
     @Published var hasWallet: Bool
@@ -38,43 +66,66 @@ final class WalletStore: ObservableObject {
     @Published var marketPriceAlerts: [MarketPriceAlert]
     @Published var isAppLocked: Bool
     @Published var unlockErrorMessage: String?
+    @Published var passcodeConfigured: Bool
+    @Published var faceIDEnabled: Bool
+    @Published var lastUnlockTimestamp: Date?
+    @Published var lockReason: AppLockReason
+    @Published var assetLayout: AssetLayoutPreset
+    @Published var hideSmallBalances: Bool
+    @Published var hideNFTs: Bool
+    @Published var syncMessage: String
+    @Published var hasSyncBackup: Bool
 
     private let defaults: UserDefaults
     private let secureStore: SecureStoring
     private let authenticator: DeviceAuthenticating
     private let chainDataProvider: ChainDataProviding
+    private let ubiquitousStore: NSUbiquitousKeyValueStore
 
     init(
         defaults: UserDefaults = .standard,
         secureStore: SecureStoring = KeychainSecureStore.shared,
         authenticator: DeviceAuthenticating = DeviceSecurity.shared,
-        chainDataProvider: ChainDataProviding = LiveChainDataProvider()
+        chainDataProvider: ChainDataProviding = LiveChainDataProvider(),
+        ubiquitousStore: NSUbiquitousKeyValueStore = .default
     ) {
         self.defaults = defaults
         self.secureStore = secureStore
         self.authenticator = authenticator
         self.chainDataProvider = chainDataProvider
+        self.ubiquitousStore = ubiquitousStore
 
-        let initialHasWallet = defaults.bool(forKey: "unite.native.hasWallet")
-        let initialBiometricLockEnabled = defaults.object(forKey: "unite.native.biometricLockEnabled") as? Bool ?? true
+        let initialHasWallet = defaults.bool(forKey: DefaultsKey.hasWallet)
+        let initialBiometricLockEnabled = defaults.object(forKey: DefaultsKey.biometricLockEnabled) as? Bool ?? true
+        let storedPasscodeHash = try? secureStore.string(for: SecureKey.passcodeHash)
+        let initialSyncBackup = (ubiquitousStore.string(forKey: SyncKey.encryptedWallet)?.isEmpty == false)
 
         hasWallet = initialHasWallet
-        backupConfirmed = defaults.bool(forKey: "unite.native.backupConfirmed")
-        address = defaults.string(forKey: "unite.native.address") ?? ""
+        backupConfirmed = defaults.bool(forKey: DefaultsKey.backupConfirmed)
+        address = defaults.string(forKey: DefaultsKey.address) ?? ""
         mnemonic = (try? secureStore.string(for: SecureKey.mnemonic)) ?? ""
         privateKey = (try? secureStore.string(for: SecureKey.privateKey)) ?? ""
-        importType = defaults.string(forKey: "unite.native.importType") ?? "Generated"
-        walletEngine = defaults.string(forKey: "unite.native.walletEngine") ?? "Not initialized"
+        importType = defaults.string(forKey: DefaultsKey.importType) ?? "Generated"
+        walletEngine = defaults.string(forKey: DefaultsKey.walletEngine) ?? "Not initialized"
         chains = Self.loadChains(from: defaults)
-        primaryChainID = defaults.string(forKey: "unite.native.primaryChainID") ?? WalletNetwork.solana.rawValue
+        primaryChainID = defaults.string(forKey: DefaultsKey.primaryChainID) ?? WalletNetwork.solana.rawValue
         chainStates = Self.loadChainStates(from: defaults)
-        diagnosticsEnabled = defaults.bool(forKey: "unite.native.diagnosticsEnabled")
+        diagnosticsEnabled = defaults.bool(forKey: DefaultsKey.diagnosticsEnabled)
         biometricLockEnabled = initialBiometricLockEnabled
+        faceIDEnabled = initialBiometricLockEnabled
         contacts = Self.loadContacts(from: defaults)
-        marketAutoRefreshEnabled = defaults.object(forKey: "unite.native.marketAutoRefreshEnabled") as? Bool ?? true
-        watchedMarketAssetIDs = Set(defaults.stringArray(forKey: "unite.native.watchedMarketAssetIDs") ?? ["solana"])
+        marketAutoRefreshEnabled = defaults.object(forKey: DefaultsKey.marketAutoRefreshEnabled) as? Bool ?? true
+        watchedMarketAssetIDs = Set(defaults.stringArray(forKey: DefaultsKey.watchedMarketAssetIDs) ?? ["solana"])
         marketPriceAlerts = Self.loadMarketPriceAlerts(from: defaults)
-        isAppLocked = initialHasWallet && initialBiometricLockEnabled
+        passcodeConfigured = storedPasscodeHash?.isEmpty == false
+        assetLayout = AssetLayoutPreset(rawValue: defaults.integer(forKey: DefaultsKey.assetLayout)) ?? .spacious
+        hideSmallBalances = defaults.object(forKey: DefaultsKey.hideSmallBalances) as? Bool ?? false
+        hideNFTs = defaults.object(forKey: DefaultsKey.hideNFTs) as? Bool ?? true
+        syncMessage = initialSyncBackup ? "Encrypted iCloud backup available." : "No encrypted iCloud backup yet."
+        hasSyncBackup = initialSyncBackup
+        lastUnlockTimestamp = defaults.object(forKey: DefaultsKey.lastUnlockTimestamp) as? Date
+        lockReason = .launch
+        isAppLocked = initialHasWallet && storedPasscodeHash?.isEmpty == false
 
         clearLegacySecrets()
 
@@ -94,6 +145,7 @@ final class WalletStore: ObservableObject {
         upgradeStoredChainsIfPossible()
         normalizePrimaryChain()
         balanceSOL = nativeBalance(for: WalletNetwork.solana.rawValue)
+        ubiquitousStore.synchronize()
     }
 
     var shortAddress: String {
@@ -141,18 +193,20 @@ final class WalletStore: ObservableObject {
     var serviceStatuses: [WalletServiceStatus] {
         [
             .init(name: "Wallet security", detail: "Recovery material stays on this device", state: hasWallet ? "Ready" : "Setup"),
-            .init(name: "Screen lock", detail: biometricLockEnabled ? "Sensitive views require device authentication" : "Turn on device authentication", state: biometricLockEnabled ? "On" : "Review"),
+            .init(name: "Screen lock", detail: passcodeConfigured ? (faceIDEnabled ? "App passcode plus Face ID unlock" : "App passcode required on this device") : "Set a 6-digit app passcode", state: passcodeConfigured ? "On" : "Action"),
             .init(name: "Market data", detail: marketUpdatedAt.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Pull to refresh when you need it", state: "Read-only"),
-            .init(name: "Network sync", detail: lastChainSyncDetail, state: chainSyncStateLabel)
+            .init(name: "Network sync", detail: lastChainSyncDetail, state: chainSyncStateLabel),
+            .init(name: "iCloud backup", detail: syncMessage, state: hasSyncBackup ? "Ready" : "Review")
         ]
     }
 
     var activities: [WalletActivity] {
         [
             .init(icon: "checkmark.seal", title: "Wallet ready", detail: "Your multichain wallet is available on this device with \(chains.count) supported networks.", amount: "", status: hasWallet ? "Ready" : "Setup"),
-            .init(icon: "lock.shield", title: "Screen lock", detail: biometricLockEnabled ? "Recovery and wallet details stay behind device authentication." : "Turn on device authentication before wider testing.", amount: "", status: biometricLockEnabled ? "On" : "Review"),
+            .init(icon: "lock.shield", title: "Screen lock", detail: passcodeConfigured ? "Wallet access now sits behind a 6-digit app code." : "Set a 6-digit app code before using the wallet.", amount: "", status: passcodeConfigured ? "On" : "Action"),
             .init(icon: "key.viewfinder", title: "Backup reminder", detail: backupConfirmed ? "Your recovery material has been confirmed and can be reviewed later." : "Confirm your recovery material before moving funds.", amount: "", status: backupConfirmed ? "Saved" : "Action"),
-            .init(icon: "arrow.trianglehead.2.clockwise", title: "Chain sync", detail: lastChainSyncDetail, amount: "", status: chainSyncStateLabel)
+            .init(icon: "arrow.trianglehead.2.clockwise", title: "Chain sync", detail: lastChainSyncDetail, amount: "", status: chainSyncStateLabel),
+            .init(icon: "icloud", title: "iCloud backup", detail: syncMessage, amount: "", status: hasSyncBackup ? "Ready" : "Review")
         ]
     }
 
@@ -160,7 +214,7 @@ final class WalletStore: ObservableObject {
         [
             .init(title: "Backup", detail: backupConfirmed ? "Your recovery material is available later behind device authentication." : "Confirm and store your recovery material offline before using the wallet.", severity: backupConfirmed ? "OK" : "Action"),
             .init(title: "What this build covers", detail: "This build derives Bitcoin, Ethereum, and Solana addresses from one recovery phrase and syncs native balances from live networks.", severity: "Guide"),
-            .init(title: "Current send scope", detail: "Receive and balance sync are live across supported chains. Transaction sending still needs chain-specific signing and broadcast flows.", severity: "Note")
+            .init(title: "Current send scope", detail: "Receive, secure storage, app lock, and encrypted sync are live here. Network signing and broadcast still need chain-specific service work.", severity: "Note")
         ]
     }
 
@@ -202,59 +256,169 @@ final class WalletStore: ObservableObject {
 
     func confirmBackup() {
         backupConfirmed = true
-        defaults.set(true, forKey: "unite.native.backupConfirmed")
+        defaults.set(true, forKey: DefaultsKey.backupConfirmed)
     }
 
     func setDiagnosticsEnabled(_ enabled: Bool) {
         diagnosticsEnabled = enabled
-        defaults.set(enabled, forKey: "unite.native.diagnosticsEnabled")
+        defaults.set(enabled, forKey: DefaultsKey.diagnosticsEnabled)
     }
 
     func setBiometricLockEnabled(_ enabled: Bool) {
         biometricLockEnabled = enabled
-        defaults.set(enabled, forKey: "unite.native.biometricLockEnabled")
-        if !enabled {
-            isAppLocked = false
-            unlockErrorMessage = nil
-        } else if hasWallet {
-            isAppLocked = true
-        }
+        faceIDEnabled = enabled
+        defaults.set(enabled, forKey: DefaultsKey.biometricLockEnabled)
         diagnostic("Biometric lock setting changed.")
     }
 
     func setMarketAutoRefreshEnabled(_ enabled: Bool) {
         marketAutoRefreshEnabled = enabled
-        defaults.set(enabled, forKey: "unite.native.marketAutoRefreshEnabled")
+        defaults.set(enabled, forKey: DefaultsKey.marketAutoRefreshEnabled)
     }
 
     func setPrimaryChain(_ chainID: String) {
         guard chains.contains(where: { $0.id == chainID }) else { return }
         primaryChainID = chainID
         address = currentChain?.address ?? address
-        defaults.set(chainID, forKey: "unite.native.primaryChainID")
+        defaults.set(chainID, forKey: DefaultsKey.primaryChainID)
     }
 
-    func lockApp() {
-        guard hasWallet, biometricLockEnabled else { return }
+    func setAssetLayout(_ preset: AssetLayoutPreset) {
+        assetLayout = preset
+        defaults.set(preset.rawValue, forKey: DefaultsKey.assetLayout)
+    }
+
+    func setHideSmallBalances(_ hidden: Bool) {
+        hideSmallBalances = hidden
+        defaults.set(hidden, forKey: DefaultsKey.hideSmallBalances)
+    }
+
+    func setHideNFTs(_ hidden: Bool) {
+        hideNFTs = hidden
+        defaults.set(hidden, forKey: DefaultsKey.hideNFTs)
+    }
+
+    func setPasscode(_ passcode: String) -> String? {
+        guard passcode.count == 6, passcode.allSatisfy(\.isNumber) else {
+            return "Use exactly 6 digits."
+        }
+        let salt = randomSalt()
+        let hash = passcodeHash(for: passcode, salt: salt)
+        do {
+            try secureStore.set(hash, for: SecureKey.passcodeHash)
+            try secureStore.set(salt.base64EncodedString(), for: SecureKey.passcodeSalt)
+            passcodeConfigured = true
+            isAppLocked = hasWallet
+            return nil
+        } catch {
+            return "The app passcode could not be saved on this device."
+        }
+    }
+
+    func verifyPasscode(_ passcode: String) -> Bool {
+        guard let storedHash = try? secureStore.string(for: SecureKey.passcodeHash),
+              let saltString = try? secureStore.string(for: SecureKey.passcodeSalt),
+              let salt = Data(base64Encoded: saltString) else {
+            unlockErrorMessage = "The app passcode is not set up on this device."
+            return false
+        }
+
+        let matches = passcodeHash(for: passcode, salt: salt) == storedHash
+        unlockErrorMessage = matches ? nil : "That code did not match."
+        if matches {
+            completeUnlock()
+        }
+        return matches
+    }
+
+    func lockApp(reason: AppLockReason = .background) {
+        guard hasWallet, passcodeConfigured else { return }
+        lockReason = reason
         isAppLocked = true
         unlockErrorMessage = nil
     }
 
-    func unlockApp() async -> Bool {
-        guard hasWallet, biometricLockEnabled else {
-            isAppLocked = false
-            return true
-        }
-
+    func unlockWithFaceID() async -> Bool {
+        guard hasWallet, passcodeConfigured, faceIDEnabled else { return false }
         do {
-            let allowed = try await authenticator.authenticate(reason: "Unlock Unite Wallet to view recovery material and wallet details.")
-            isAppLocked = !allowed
-            unlockErrorMessage = allowed ? nil : "Authentication was cancelled."
+            let allowed = try await authenticator.authenticate(reason: "Unlock Unite Wallet.")
+            if allowed {
+                completeUnlock()
+            } else {
+                unlockErrorMessage = "Authentication was cancelled."
+            }
             return allowed
         } catch {
             unlockErrorMessage = error.localizedDescription
             return false
         }
+    }
+
+    func syncEncryptedWallet(passcode: String) -> String? {
+        guard verifyPasscodeMaterial(passcode) else {
+            return "The sync passcode did not match your app code."
+        }
+        guard hasWallet else {
+            return "Create or import a wallet before syncing."
+        }
+
+        do {
+            let payload = SyncWalletPayload(
+                mnemonic: mnemonic,
+                privateKey: privateKey,
+                importType: importType,
+                walletEngine: walletEngine,
+                primaryChainID: primaryChainID,
+                chains: chains,
+                chainStates: chainStates,
+                backupConfirmed: backupConfirmed,
+                settings: SyncWalletSettings(
+                    assetLayout: assetLayout,
+                    hideSmallBalances: hideSmallBalances,
+                    hideNFTs: hideNFTs,
+                    watchedMarketAssetIDs: Array(watchedMarketAssetIDs)
+                )
+            )
+            let encrypted = try encryptSyncPayload(payload, passcode: passcode)
+            ubiquitousStore.set(encrypted, forKey: SyncKey.encryptedWallet)
+            ubiquitousStore.synchronize()
+            hasSyncBackup = true
+            syncMessage = "Encrypted iCloud backup updated."
+            return nil
+        } catch {
+            syncMessage = "Encrypted iCloud backup failed."
+            return "The encrypted iCloud backup could not be updated."
+        }
+    }
+
+    func restoreWalletFromSync(passcode: String) -> String? {
+        guard let encrypted = ubiquitousStore.string(forKey: SyncKey.encryptedWallet), !encrypted.isEmpty else {
+            return "No encrypted iCloud backup was found."
+        }
+
+        do {
+            let payload = try decryptSyncPayload(encrypted, passcode: passcode)
+            guard setPasscode(passcode) == nil else {
+                return "The app passcode could not be restored on this device."
+            }
+            try apply(syncPayload: payload)
+            hasSyncBackup = true
+            syncMessage = "Encrypted iCloud backup restored."
+            return nil
+        } catch {
+            return "That passcode could not open the encrypted iCloud backup."
+        }
+    }
+
+    func clearSyncBackup() {
+        ubiquitousStore.removeObject(forKey: SyncKey.encryptedWallet)
+        ubiquitousStore.synchronize()
+        hasSyncBackup = false
+        syncMessage = "Encrypted iCloud backup removed."
+    }
+
+    func unlockApp() async -> Bool {
+        await unlockWithFaceID()
     }
 
     func isWatchingMarketAsset(_ asset: MarketAsset) -> Bool {
@@ -267,7 +431,7 @@ final class WalletStore: ObservableObject {
         } else {
             watchedMarketAssetIDs.insert(asset.id)
         }
-        defaults.set(Array(watchedMarketAssetIDs), forKey: "unite.native.watchedMarketAssetIDs")
+        defaults.set(Array(watchedMarketAssetIDs), forKey: DefaultsKey.watchedMarketAssetIDs)
     }
 
     func priceAlert(for asset: MarketAsset) -> MarketPriceAlert? {
@@ -314,13 +478,13 @@ final class WalletStore: ObservableObject {
         isAppLocked = false
         unlockErrorMessage = nil
         defaults.removeObject(forKey: "unite.native.hasWallet")
-        defaults.removeObject(forKey: "unite.native.backupConfirmed")
-        defaults.removeObject(forKey: "unite.native.address")
-        defaults.removeObject(forKey: "unite.native.importType")
-        defaults.removeObject(forKey: "unite.native.walletEngine")
-        defaults.removeObject(forKey: "unite.native.chains")
-        defaults.removeObject(forKey: "unite.native.primaryChainID")
-        defaults.removeObject(forKey: "unite.native.chainStates")
+        defaults.removeObject(forKey: DefaultsKey.backupConfirmed)
+        defaults.removeObject(forKey: DefaultsKey.address)
+        defaults.removeObject(forKey: DefaultsKey.importType)
+        defaults.removeObject(forKey: DefaultsKey.walletEngine)
+        defaults.removeObject(forKey: DefaultsKey.chains)
+        defaults.removeObject(forKey: DefaultsKey.primaryChainID)
+        defaults.removeObject(forKey: DefaultsKey.chainStates)
         defaults.removeObject(forKey: "unite.native.mnemonic")
         defaults.removeObject(forKey: "unite.native.privateKey")
         try? secureStore.removeValue(for: SecureKey.mnemonic)
@@ -403,7 +567,26 @@ final class WalletStore: ObservableObject {
         })
         balanceSOL = 0
         try persistWallet()
-        isAppLocked = biometricLockEnabled
+        isAppLocked = passcodeConfigured
+    }
+
+    private func apply(syncPayload: SyncWalletPayload) throws {
+        mnemonic = syncPayload.mnemonic
+        privateKey = syncPayload.privateKey
+        importType = syncPayload.importType
+        walletEngine = syncPayload.walletEngine
+        chains = syncPayload.chains
+        primaryChainID = syncPayload.primaryChainID
+        address = chains.first(where: { $0.id == primaryChainID })?.address ?? syncPayload.chains.first?.address ?? ""
+        chainStates = syncPayload.chainStates
+        backupConfirmed = syncPayload.backupConfirmed
+        hasWallet = true
+        watchedMarketAssetIDs = Set(syncPayload.settings.watchedMarketAssetIDs)
+        assetLayout = syncPayload.settings.assetLayout
+        hideSmallBalances = syncPayload.settings.hideSmallBalances
+        hideNFTs = syncPayload.settings.hideNFTs
+        try persistWallet()
+        completeUnlock()
     }
 
     private func upgradeStoredChainsIfPossible() {
@@ -470,18 +653,21 @@ final class WalletStore: ObservableObject {
     }
 
     private func persistWallet() throws {
-        defaults.set(hasWallet, forKey: "unite.native.hasWallet")
-        defaults.set(backupConfirmed, forKey: "unite.native.backupConfirmed")
-        defaults.set(address, forKey: "unite.native.address")
-        defaults.set(importType, forKey: "unite.native.importType")
-        defaults.set(walletEngine, forKey: "unite.native.walletEngine")
-        defaults.set(primaryChainID, forKey: "unite.native.primaryChainID")
-        defaults.set(diagnosticsEnabled, forKey: "unite.native.diagnosticsEnabled")
-        defaults.set(biometricLockEnabled, forKey: "unite.native.biometricLockEnabled")
-        defaults.set(marketAutoRefreshEnabled, forKey: "unite.native.marketAutoRefreshEnabled")
-        defaults.set(Array(watchedMarketAssetIDs), forKey: "unite.native.watchedMarketAssetIDs")
+        defaults.set(hasWallet, forKey: DefaultsKey.hasWallet)
+        defaults.set(backupConfirmed, forKey: DefaultsKey.backupConfirmed)
+        defaults.set(address, forKey: DefaultsKey.address)
+        defaults.set(importType, forKey: DefaultsKey.importType)
+        defaults.set(walletEngine, forKey: DefaultsKey.walletEngine)
+        defaults.set(primaryChainID, forKey: DefaultsKey.primaryChainID)
+        defaults.set(diagnosticsEnabled, forKey: DefaultsKey.diagnosticsEnabled)
+        defaults.set(faceIDEnabled, forKey: DefaultsKey.biometricLockEnabled)
+        defaults.set(marketAutoRefreshEnabled, forKey: DefaultsKey.marketAutoRefreshEnabled)
+        defaults.set(Array(watchedMarketAssetIDs), forKey: DefaultsKey.watchedMarketAssetIDs)
+        defaults.set(assetLayout.rawValue, forKey: DefaultsKey.assetLayout)
+        defaults.set(hideSmallBalances, forKey: DefaultsKey.hideSmallBalances)
+        defaults.set(hideNFTs, forKey: DefaultsKey.hideNFTs)
         if let data = try? JSONEncoder().encode(chains) {
-            defaults.set(data, forKey: "unite.native.chains")
+            defaults.set(data, forKey: DefaultsKey.chains)
         }
         persistChainStates()
         try secureStore.set(mnemonic, for: SecureKey.mnemonic)
@@ -489,42 +675,143 @@ final class WalletStore: ObservableObject {
     }
 
     private static func loadChains(from defaults: UserDefaults) -> [WalletChain] {
-        guard let data = defaults.data(forKey: "unite.native.chains") else { return [] }
+        guard let data = defaults.data(forKey: DefaultsKey.chains) else { return [] }
         return (try? JSONDecoder().decode([WalletChain].self, from: data)) ?? []
     }
 
     private func persistChainStates() {
         if let data = try? JSONEncoder().encode(chainStates) {
-            defaults.set(data, forKey: "unite.native.chainStates")
+            defaults.set(data, forKey: DefaultsKey.chainStates)
         }
     }
 
     private static func loadChainStates(from defaults: UserDefaults) -> [String: ChainBalanceSnapshot] {
-        guard let data = defaults.data(forKey: "unite.native.chainStates") else { return [:] }
+        guard let data = defaults.data(forKey: DefaultsKey.chainStates) else { return [:] }
         return (try? JSONDecoder().decode([String: ChainBalanceSnapshot].self, from: data)) ?? [:]
     }
 
     private func persistContacts() {
         if let data = try? JSONEncoder().encode(contacts) {
-            defaults.set(data, forKey: "unite.native.contacts")
+            defaults.set(data, forKey: DefaultsKey.contacts)
         }
     }
 
     private static func loadContacts(from defaults: UserDefaults) -> [WalletContact] {
-        guard let data = defaults.data(forKey: "unite.native.contacts") else { return [] }
+        guard let data = defaults.data(forKey: DefaultsKey.contacts) else { return [] }
         return (try? JSONDecoder().decode([WalletContact].self, from: data)) ?? []
     }
 
     private func persistMarketPriceAlerts() {
         if let data = try? JSONEncoder().encode(marketPriceAlerts) {
-            defaults.set(data, forKey: "unite.native.marketPriceAlerts")
+            defaults.set(data, forKey: DefaultsKey.marketPriceAlerts)
         }
     }
 
     private static func loadMarketPriceAlerts(from defaults: UserDefaults) -> [MarketPriceAlert] {
-        guard let data = defaults.data(forKey: "unite.native.marketPriceAlerts") else { return [] }
+        guard let data = defaults.data(forKey: DefaultsKey.marketPriceAlerts) else { return [] }
         return (try? JSONDecoder().decode([MarketPriceAlert].self, from: data)) ?? []
     }
+
+    private func completeUnlock() {
+        isAppLocked = false
+        unlockErrorMessage = nil
+        lastUnlockTimestamp = Date()
+        defaults.set(lastUnlockTimestamp, forKey: DefaultsKey.lastUnlockTimestamp)
+    }
+
+    private func verifyPasscodeMaterial(_ passcode: String) -> Bool {
+        guard let storedHash = try? secureStore.string(for: SecureKey.passcodeHash),
+              let saltString = try? secureStore.string(for: SecureKey.passcodeSalt),
+              let salt = Data(base64Encoded: saltString) else {
+            return false
+        }
+        return passcodeHash(for: passcode, salt: salt) == storedHash
+    }
+
+    private func encryptSyncPayload(_ payload: SyncWalletPayload, passcode: String) throws -> String {
+        let salt = randomSalt()
+        let key = SymmetricKey(data: Data(SHA256.hash(data: salt + Data(passcode.utf8))))
+        let clear = try JSONEncoder().encode(payload)
+        let sealed = try AES.GCM.seal(clear, using: key)
+        let envelope = SyncEnvelope(
+            salt: salt.base64EncodedString(),
+            nonce: sealed.nonce.withUnsafeBytes { Data($0).base64EncodedString() },
+            ciphertext: sealed.ciphertext.base64EncodedString(),
+            tag: sealed.tag.base64EncodedString()
+        )
+        return try String(data: JSONEncoder().encode(envelope), encoding: .utf8) ?? ""
+    }
+
+    private func decryptSyncPayload(_ encrypted: String, passcode: String) throws -> SyncWalletPayload {
+        let envelope = try JSONDecoder().decode(SyncEnvelope.self, from: Data(encrypted.utf8))
+        let salt = Data(base64Encoded: envelope.salt) ?? Data()
+        let key = SymmetricKey(data: Data(SHA256.hash(data: salt + Data(passcode.utf8))))
+        let nonceData = Data(base64Encoded: envelope.nonce) ?? Data()
+        let ciphertext = Data(base64Encoded: envelope.ciphertext) ?? Data()
+        let tag = Data(base64Encoded: envelope.tag) ?? Data()
+        let nonce = try AES.GCM.Nonce(data: nonceData)
+        let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: tag)
+        let clear = try AES.GCM.open(box, using: key)
+        return try JSONDecoder().decode(SyncWalletPayload.self, from: clear)
+    }
+
+    private func passcodeHash(for passcode: String, salt: Data) -> String {
+        let digest = SHA256.hash(data: salt + Data(passcode.utf8))
+        return Data(digest).base64EncodedString()
+    }
+
+    private func randomSalt() -> Data {
+        let bytes = (0..<16).map { _ in UInt8.random(in: .min ... .max) }
+        return Data(bytes)
+    }
+}
+
+enum AppLockReason: String {
+    case launch
+    case background
+    case securityAction
+}
+
+enum AssetLayoutPreset: Int, CaseIterable, Codable, Identifiable {
+    case compact = 1
+    case balanced = 2
+    case spacious = 3
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .compact: "Compact"
+        case .balanced: "Balanced"
+        case .spacious: "Spacious"
+        }
+    }
+}
+
+private struct SyncWalletPayload: Codable {
+    let mnemonic: String
+    let privateKey: String
+    let importType: String
+    let walletEngine: String
+    let primaryChainID: String
+    let chains: [WalletChain]
+    let chainStates: [String: ChainBalanceSnapshot]
+    let backupConfirmed: Bool
+    let settings: SyncWalletSettings
+}
+
+private struct SyncWalletSettings: Codable {
+    let assetLayout: AssetLayoutPreset
+    let hideSmallBalances: Bool
+    let hideNFTs: Bool
+    let watchedMarketAssetIDs: [String]
+}
+
+private struct SyncEnvelope: Codable {
+    let salt: String
+    let nonce: String
+    let ciphertext: String
+    let tag: String
 }
 
 enum ChainSyncStatus: String, Codable {

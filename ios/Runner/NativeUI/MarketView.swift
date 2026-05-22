@@ -2,133 +2,133 @@ import SwiftUI
 
 struct MarketView: View {
     @EnvironmentObject private var store: WalletStore
-    @State private var selectedAsset: MarketAsset?
     @State private var query = ""
     @State private var filter: MarketFilter = .all
     @State private var sort: MarketSort = .rank
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        UniteSectionHeader(
-                            eyebrow: "Markets",
-                            title: "Read-only market watch",
-                            detail: "Track pricing and momentum without leaving the beta wallet."
-                        )
-                        Spacer()
-                        Button {
-                            Task { await store.refreshMarket() }
-                        } label: {
-                            Image(systemName: store.isRefreshingMarket ? "hourglass" : "arrow.clockwise")
-                                .font(.system(size: 18, weight: .bold))
-                                .frame(width: 48, height: 48)
-                                .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Text(store.marketUpdatedAt.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Read-only CoinGecko beta data")
-                        .roundedFont(13, weight: .medium)
-                        .foregroundStyle(UniteTheme.muted)
-
-                    let sol = store.marketAssets.first
-                    Text(usd(sol?.price))
-                        .roundedFont(52, weight: .black)
-                    Text("\((sol?.change24h ?? 0) >= 0 ? "+" : "")\(String(format: "%.2f", sol?.change24h ?? 0))% 24h")
-                        .roundedFont(15, weight: .black)
-                        .foregroundStyle((sol?.change24h ?? 0) >= 0 ? UniteTheme.green : UniteTheme.red)
-                    UniteBanner(
-                        title: marketStatusTitle,
-                        detail: store.marketMessage,
-                        tone: marketStatusTone,
-                        icon: marketStatusTone == .caution ? "wifi.exclamationmark" : "chart.line.uptrend.xyaxis"
-                    )
-
-                    HStack(spacing: 10) {
-                        Button {
-                            store.setMarketAutoRefreshEnabled(!store.marketAutoRefreshEnabled)
-                        } label: {
-                            Label(store.marketAutoRefreshEnabled ? "Auto refresh" : "Manual refresh", systemImage: store.marketAutoRefreshEnabled ? "bolt.fill" : "pause.fill")
-                                .roundedFont(13, weight: .bold)
-                                .foregroundStyle(store.marketAutoRefreshEnabled ? .black : .white)
-                                .padding(.horizontal, 14)
-                                .frame(height: 40)
-                                .background(store.marketAutoRefreshEnabled ? .white : UniteTheme.raised, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-
-                        Menu {
-                            ForEach(MarketSort.allCases) { option in
-                                Button(option.rawValue) { sort = option }
-                            }
-                        } label: {
-                            Label(sort.rawValue, systemImage: "arrow.up.arrow.down")
-                                .roundedFont(13, weight: .bold)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 14)
-                                .frame(height: 40)
-                                .background(UniteTheme.raised, in: Capsule())
-                        }
-                    }
-                }
-                .uniteCard()
-
-                MarketSearchField(text: $query)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 9) {
-                        ForEach(MarketFilter.allCases) { option in
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            UniteSectionHeader(
+                                eyebrow: "Markets",
+                                title: "Read-only market watch",
+                                detail: "Track pricing and momentum without leaving the wallet."
+                            )
+                            Spacer()
                             Button {
-                                filter = option
+                                Task { await store.refreshMarket() }
                             } label: {
-                                Text(option.rawValue)
+                                Image(systemName: store.isRefreshingMarket ? "hourglass" : "arrow.clockwise")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .frame(width: 48, height: 48)
+                                    .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Text(store.marketUpdatedAt.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Read-only CoinGecko beta data")
+                            .roundedFont(13, weight: .medium)
+                            .foregroundStyle(UniteTheme.muted)
+
+                        let sol = store.marketAssets.first
+                        Text(usd(sol?.price))
+                            .roundedFont(52, weight: .black)
+                        Text("\((sol?.change24h ?? 0) >= 0 ? "+" : "")\(String(format: "%.2f", sol?.change24h ?? 0))% 24h")
+                            .roundedFont(15, weight: .black)
+                            .foregroundStyle((sol?.change24h ?? 0) >= 0 ? UniteTheme.green : UniteTheme.red)
+                        UniteBanner(
+                            title: marketStatusTitle,
+                            detail: store.marketMessage,
+                            tone: marketStatusTone,
+                            icon: marketStatusTone == .caution ? "wifi.exclamationmark" : "chart.line.uptrend.xyaxis"
+                        )
+
+                        HStack(spacing: 10) {
+                            Button {
+                                store.setMarketAutoRefreshEnabled(!store.marketAutoRefreshEnabled)
+                            } label: {
+                                Label(store.marketAutoRefreshEnabled ? "Auto refresh" : "Manual refresh", systemImage: store.marketAutoRefreshEnabled ? "bolt.fill" : "pause.fill")
                                     .roundedFont(13, weight: .bold)
-                                    .foregroundStyle(filter == option ? .black : .white)
+                                    .foregroundStyle(store.marketAutoRefreshEnabled ? .black : .white)
                                     .padding(.horizontal, 14)
                                     .frame(height: 40)
-                                    .background(filter == option ? .white : UniteTheme.raised, in: Capsule())
+                                    .background(store.marketAutoRefreshEnabled ? .white : UniteTheme.raised, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+
+                            Menu {
+                                ForEach(MarketSort.allCases) { option in
+                                    Button(option.rawValue) { sort = option }
+                                }
+                            } label: {
+                                Label(sort.rawValue, systemImage: "arrow.up.arrow.down")
+                                    .roundedFont(13, weight: .bold)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 40)
+                                    .background(UniteTheme.raised, in: Capsule())
+                            }
+                        }
+                    }
+                    .uniteCard()
+
+                    MarketSearchField(text: $query, placeholder: "Search tokens")
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 9) {
+                            ForEach(MarketFilter.allCases) { option in
+                                Button {
+                                    filter = option
+                                } label: {
+                                    Text(option.rawValue)
+                                        .roundedFont(13, weight: .bold)
+                                        .foregroundStyle(filter == option ? .black : .white)
+                                        .padding(.horizontal, 14)
+                                        .frame(height: 40)
+                                        .background(filter == option ? .white : UniteTheme.raised, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 1)
+                    }
+
+                    if visibleAssets.isEmpty {
+                        UniteBanner(
+                            title: emptyTitle,
+                            detail: emptyDetail,
+                            tone: query.isEmpty && !store.marketMessage.localizedCaseInsensitiveContains("unavailable") ? .neutral : .caution,
+                            icon: query.isEmpty ? "tray" : "magnifyingglass"
+                        )
+                    } else {
+                        ForEach(visibleAssets) { asset in
+                            NavigationLink {
+                                MarketDetailView(asset: asset)
+                            } label: {
+                                MarketRow(
+                                    asset: asset,
+                                    isWatching: store.isWatchingMarketAsset(asset),
+                                    onToggleWatch: { store.toggleMarketWatch(asset) }
+                                )
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 1)
                 }
-
-                if visibleAssets.isEmpty {
-                    UniteBanner(
-                        title: emptyTitle,
-                        detail: emptyDetail,
-                        tone: query.isEmpty && !store.marketMessage.localizedCaseInsensitiveContains("unavailable") ? .neutral : .caution,
-                        icon: query.isEmpty ? "tray" : "magnifyingglass"
-                    )
-                } else {
-                    ForEach(visibleAssets) { asset in
-                        MarketRow(
-                            asset: asset,
-                            isWatching: store.isWatchingMarketAsset(asset),
-                            onOpen: { selectedAsset = asset },
-                            onToggleWatch: { store.toggleMarketWatch(asset) }
-                        )
-                    }
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 104)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
-            .padding(.bottom, 104)
-        }
-        .background(UniteTheme.ink)
-        .refreshable {
-            await store.refreshMarket()
-        }
-        .task {
-            await runMarketLoop()
-        }
-        .sheet(item: $selectedAsset) { asset in
-            MarketDetailView(asset: asset)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+            .background(UniteTheme.ink)
+            .refreshable {
+                await store.refreshMarket()
+            }
+            .task {
+                await runMarketLoop()
+            }
         }
     }
 
@@ -208,34 +208,30 @@ struct MarketView: View {
 struct MarketRow: View {
     let asset: MarketAsset
     let isWatching: Bool
-    let onOpen: () -> Void
     let onToggleWatch: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: onOpen) {
-                HStack(spacing: 14) {
-                    TokenIcon(asset: asset, size: 48)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(asset.name)
-                            .roundedFont(15, weight: .black)
-                        Text(asset.rank.map { "\(asset.symbol)  #\($0)" } ?? asset.symbol)
-                            .roundedFont(13, weight: .medium)
-                            .foregroundStyle(UniteTheme.muted)
-                    }
-                    Spacer()
-                    Sparkline(points: asset.sparkline, tint: asset.isPositive ? UniteTheme.green : UniteTheme.red)
-                        .frame(width: 78, height: 40)
-                    VStack(alignment: .trailing, spacing: 5) {
-                        Text(usd(asset.price))
-                            .roundedFont(15, weight: .black)
-                        Text("\(asset.isPositive ? "+" : "")\(String(format: "%.2f", asset.change24h ?? 0))%")
-                            .roundedFont(13, weight: .black)
-                            .foregroundStyle(asset.isPositive ? UniteTheme.green : UniteTheme.red)
-                    }
+            HStack(spacing: 14) {
+                TokenIcon(asset: asset, size: 48)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(asset.name)
+                        .roundedFont(15, weight: .black)
+                    Text(asset.rank.map { "\(asset.symbol)  #\($0)" } ?? asset.symbol)
+                        .roundedFont(13, weight: .medium)
+                        .foregroundStyle(UniteTheme.muted)
+                }
+                Spacer()
+                Sparkline(points: asset.sparkline, tint: asset.isPositive ? UniteTheme.green : UniteTheme.red)
+                    .frame(width: 78, height: 40)
+                VStack(alignment: .trailing, spacing: 5) {
+                    Text(usd(asset.price))
+                        .roundedFont(15, weight: .black)
+                    Text("\(asset.isPositive ? "+" : "")\(String(format: "%.2f", asset.change24h ?? 0))%")
+                        .roundedFont(13, weight: .black)
+                        .foregroundStyle(asset.isPositive ? UniteTheme.green : UniteTheme.red)
                 }
             }
-            .buttonStyle(.plain)
 
             Button(action: onToggleWatch) {
                 Image(systemName: isWatching ? "star.fill" : "star")
@@ -246,14 +242,13 @@ struct MarketRow: View {
             }
             .buttonStyle(.plain)
         }
-        .uniteCard()
+            .uniteCard()
     }
 }
 
 struct MarketDetailView: View {
     @EnvironmentObject private var store: WalletStore
     let asset: MarketAsset
-    @State private var showingBuy = false
     @State private var selectedRange: MarketRange = .day
     @State private var alertPrice = ""
     @State private var alertSaved = false
@@ -355,48 +350,22 @@ struct MarketDetailView: View {
             }
             .uniteCard(cornerRadius: 20)
 
-            HStack(spacing: 12) {
-                UniteButton(title: "Buy coming later", systemImage: "clock", isEnabled: false, tone: .secondary) {}
-
-                Button {
-                    store.toggleMarketWatch(asset)
-                } label: {
-                    Label(store.isWatchingMarketAsset(asset) ? "Watching" : "Watch", systemImage: store.isWatchingMarketAsset(asset) ? "star.fill" : "star")
-                        .roundedFont(15, weight: .black)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-                }
-                .buttonStyle(.plain)
+            Button {
+                store.toggleMarketWatch(asset)
+            } label: {
+                Label(store.isWatchingMarketAsset(asset) ? "Watching" : "Watch", systemImage: store.isWatchingMarketAsset(asset) ? "star.fill" : "star")
+                    .roundedFont(15, weight: .black)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
             }
+            .buttonStyle(.plain)
 
             Spacer()
         }
         .padding(22)
         .background(UniteTheme.ink)
-        .sheet(isPresented: $showingBuy) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Buy \(asset.symbol)")
-                    .roundedFont(32, weight: .black)
-                UniteBanner(
-                    title: "Not in the TestFlight scope",
-                    detail: "Quotes and checkout are intentionally disabled until ramp providers and compliance flows are fully integrated.",
-                    tone: .caution,
-                    icon: "creditcard.trianglebadge.exclamationmark"
-                )
-                StatTile(title: "Indicative price", value: usd(asset.price))
-                StatTile(title: "Network", value: asset.name)
-                UniteButton(title: "Close", systemImage: "xmark", tone: .secondary) {
-                    showingBuy = false
-                }
-                Spacer()
-            }
-            .padding(22)
-            .background(UniteTheme.ink)
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-        }
     }
 
     private var chartPoints: [Double] {
@@ -458,13 +427,14 @@ private enum MarketRange: String, CaseIterable, Identifiable {
 
 private struct MarketSearchField: View {
     @Binding var text: String
+    var placeholder = "Search"
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(UniteTheme.muted)
-            TextField("Search tokens", text: $text)
+            TextField(placeholder, text: $text)
                 .roundedFont(15, weight: .semibold)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

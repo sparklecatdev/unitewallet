@@ -3,6 +3,7 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject private var store: WalletStore
     @State private var showingImport = false
+    @State private var showingRestore = false
     @State private var errorMessage: String?
     @State private var isCreating = false
 
@@ -57,6 +58,20 @@ struct OnboardingView: View {
                         .roundedFont(13, weight: .medium)
                         .foregroundStyle(UniteTheme.secondaryText)
                 }
+
+                if store.hasSyncBackup {
+                    VStack(alignment: .leading, spacing: 10) {
+                        UniteButton(
+                            title: "Restore encrypted iCloud backup",
+                            systemImage: "icloud.and.arrow.down",
+                            tone: .secondary,
+                            action: { showingRestore = true }
+                        )
+                        Text("Use the same 6-digit Unite code from your other device to restore the encrypted wallet package.")
+                            .roundedFont(13, weight: .medium)
+                            .foregroundStyle(UniteTheme.secondaryText)
+                    }
+                }
             }
             .padding(.top, 8)
 
@@ -83,6 +98,11 @@ struct OnboardingView: View {
         .sheet(isPresented: $showingImport) {
             ImportWalletView()
                 .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingRestore) {
+            RestoreWalletView()
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
     }
@@ -239,6 +259,49 @@ struct BackupView: View {
             Spacer()
         }
         .padding(24)
+        .background(UniteTheme.ink)
+    }
+}
+
+private struct RestoreWalletView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: WalletStore
+    @State private var passcode = ""
+    @State private var restoreMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            UniteSectionHeader(
+                eyebrow: "Encrypted restore",
+                title: "Open your iCloud wallet backup",
+                detail: "Enter the same 6-digit Unite code you used on the device that created the encrypted backup."
+            )
+
+            UniteTextField(title: "6-digit code", text: $passcode, placeholder: "123456", keyboard: .numberPad)
+
+            if let restoreMessage {
+                UniteBanner(
+                    title: restoreMessage == "Restored" ? "Wallet restored" : "Restore failed",
+                    detail: restoreMessage == "Restored" ? "Your encrypted wallet package is now available on this device." : restoreMessage,
+                    tone: restoreMessage == "Restored" ? .success : .caution,
+                    icon: restoreMessage == "Restored" ? "checkmark.circle" : "exclamationmark.triangle"
+                )
+            }
+
+            UniteButton(title: "Restore wallet", systemImage: "icloud.and.arrow.down") {
+                if let error = store.restoreWalletFromSync(passcode: passcode) {
+                    restoreMessage = error
+                } else {
+                    restoreMessage = "Restored"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        dismiss()
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .padding(22)
         .background(UniteTheme.ink)
     }
 }

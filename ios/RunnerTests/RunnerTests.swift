@@ -41,6 +41,7 @@ final class RunnerTests: XCTestCase {
         XCTAssertNotNil(try secureStore.string(for: WalletStore.SecureKey.mnemonic))
         XCTAssertNotNil(try secureStore.string(for: WalletStore.SecureKey.privateKey))
         XCTAssertEqual(Set(store.chains.map(\.id)), Set(WalletNetwork.allCases.map(\.rawValue)))
+        XCTAssertFalse(store.passcodeConfigured)
     }
 
     func testImportRejectsInvalidMnemonic() {
@@ -104,10 +105,65 @@ final class RunnerTests: XCTestCase {
         )
 
         XCTAssertNil(store.createWallet())
+        XCTAssertNil(store.setPasscode("123456"))
+        store.lockApp(reason: .launch)
         XCTAssertTrue(store.isAppLocked)
 
-        let unlocked = await store.unlockApp()
+        let unlocked = await store.unlockWithFaceID()
         XCTAssertTrue(unlocked)
         XCTAssertFalse(store.isAppLocked)
+    }
+
+    func testPasscodeVerificationUnlocksWallet() {
+        let store = WalletStore(
+            defaults: defaults,
+            secureStore: secureStore,
+            authenticator: StubDeviceAuthenticator(result: true)
+        )
+
+        XCTAssertNil(store.createWallet())
+        XCTAssertNil(store.setPasscode("123456"))
+        store.lockApp(reason: .background)
+
+        XCTAssertFalse(store.verifyPasscode("000000"))
+        XCTAssertTrue(store.isAppLocked)
+        XCTAssertTrue(store.verifyPasscode("123456"))
+        XCTAssertFalse(store.isAppLocked)
+    }
+
+    func testEncryptedSyncRestoreRoundTrip() {
+        let ubiquitousStore = NSUbiquitousKeyValueStore.default
+        ubiquitousStore.removeObject(forKey: "unite.sync.wallet")
+
+        let sourceStore = WalletStore(
+            defaults: defaults,
+            secureStore: secureStore,
+            authenticator: StubDeviceAuthenticator(result: true),
+            ubiquitousStore: ubiquitousStore
+        )
+
+        XCTAssertNil(sourceStore.createWallet())
+        XCTAssertNil(sourceStore.setPasscode("123456"))
+        XCTAssertNil(sourceStore.syncEncryptedWallet(passcode: "123456"))
+        XCTAssertTrue(sourceStore.hasSyncBackup)
+
+        let restoreSuiteName = "RunnerTests.Restore.\(UUID().uuidString)"
+        let restoreDefaults = UserDefaults(suiteName: restoreSuiteName)!
+        restoreDefaults.removePersistentDomain(forName: restoreSuiteName)
+        let restoreSecureStore = InMemorySecureStore()
+        let restoredStore = WalletStore(
+            defaults: restoreDefaults,
+            secureStore: restoreSecureStore,
+            authenticator: StubDeviceAuthenticator(result: true),
+            ubiquitousStore: ubiquitousStore
+        )
+
+        XCTAssertNil(restoredStore.restoreWalletFromSync(passcode: "123456"))
+        XCTAssertTrue(restoredStore.hasWallet)
+        XCTAssertTrue(restoredStore.passcodeConfigured)
+        XCTAssertEqual(restoredStore.chains.map(\.id), sourceStore.chains.map(\.id))
+        XCTAssertEqual(restoredStore.mnemonic, sourceStore.mnemonic)
+
+        ubiquitousStore.removeObject(forKey: "unite.sync.wallet")
     }
 }

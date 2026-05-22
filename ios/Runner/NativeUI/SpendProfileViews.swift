@@ -33,8 +33,8 @@ struct ProfileView: View {
                         detail: "Choose how this wallet unlocks and what support can never see."
                     )
 
-                    Toggle("Biometric lock", isOn: Binding(
-                        get: { store.biometricLockEnabled },
+                    Toggle("Face ID unlock", isOn: Binding(
+                        get: { store.faceIDEnabled },
                         set: { store.setBiometricLockEnabled($0) }
                     ))
                     .toggleStyle(.switch)
@@ -52,6 +52,7 @@ struct ProfileView: View {
                     }
 
                     UniteButton(title: "Reveal recovery material", systemImage: "lock", tone: .secondary) {
+                        store.lockApp(reason: .securityAction)
                         showingSecret = true
                     }
                 }
@@ -86,7 +87,7 @@ struct ProfileView: View {
                     UniteSectionHeader(
                         eyebrow: "Beta expectations",
                         title: "What this build is for",
-                        detail: "This release is focused on setup, backup, receive, and read-only markets. Trading and routing features are still intentionally out of scope."
+                        detail: "This release is focused on setup, backup, secure access, encrypted sync, receive, and read-only markets. Network send services and WalletConnect session handling still need runtime work."
                     )
 
                     UniteButton(title: "Remove wallet from device", systemImage: "trash", tone: .caution) {
@@ -241,7 +242,7 @@ struct SecretRevealView: View {
             UniteSectionHeader(
                 eyebrow: "Recovery access",
                 title: "Reveal sensitive material",
-                detail: "Authenticate on this device before recovery words or keys are shown."
+                detail: "Use Face ID on this device after your Unite app code has unlocked the wallet."
             )
 
             UniteBanner(
@@ -269,7 +270,7 @@ struct SecretRevealView: View {
                         Text(secretValue)
                             .textSelection(.enabled)
                     } else {
-                        Text("Locked until you authenticate on this device.")
+                        Text("Locked until you complete Face ID on this device.")
                     }
                 }
                 .roundedFont(15, weight: .bold)
@@ -296,7 +297,8 @@ struct SecretRevealView: View {
             ) {
                 isUnlocking = true
                 Task {
-                    revealed = await store.unlockApp()
+                    store.lockApp(reason: .securityAction)
+                    revealed = await store.unlockWithFaceID()
                     isUnlocking = false
                 }
             }
