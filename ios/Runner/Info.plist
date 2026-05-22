@@ -28,6 +28,19 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Unite Wallet uses device authentication to unlock wallet access and reveal recovery material.</string>
+	<key>WalletConnectProjectID</key>
+	<string></string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.unite.wallet</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>unitewallet</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

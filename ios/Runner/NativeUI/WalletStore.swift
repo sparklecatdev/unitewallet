@@ -1,5 +1,19 @@
+import Combine
 import CryptoKit
 import Foundation
+#if canImport(WalletCore)
+import WalletCore
+#endif
+
+#if canImport(ReownWalletKit)
+import ReownWalletKit
+#if canImport(WalletConnectNetworking)
+import WalletConnectNetworking
+#endif
+#if canImport(Starscream)
+import Starscream
+#endif
+#endif
 
 @MainActor
 final class WalletStore: ObservableObject {
@@ -36,6 +50,8 @@ final class WalletStore: ObservableObject {
         static let hideSmallBalances = "unite.native.hideSmallBalances"
         static let hideNFTs = "unite.native.hideNFTs"
         static let lastUnlockTimestamp = "unite.native.lastUnlockTimestamp"
+        static let ownedAssets = "unite.native.ownedAssets"
+        static let walletConnectSessions = "unite.native.walletConnectSessions"
     }
 
     private enum SyncKey {
@@ -52,7 +68,9 @@ final class WalletStore: ObservableObject {
     @Published var chains: [WalletChain]
     @Published var primaryChainID: String
     @Published var chainStates: [String: ChainBalanceSnapshot]
+    @Published var ownedAssets: [WalletAssetBalance]
     @Published var isRefreshingChains = false
+    @Published var isRefreshingAssets = false
     @Published var diagnosticsEnabled: Bool
     @Published var biometricLockEnabled: Bool
     @Published var contacts: [WalletContact]
@@ -75,12 +93,27 @@ final class WalletStore: ObservableObject {
     @Published var hideNFTs: Bool
     @Published var syncMessage: String
     @Published var hasSyncBackup: Bool
+    @Published var sendDraft: TransferDraft?
+    @Published var pendingTransferQuote: TransferQuote?
+    @Published var pendingTransferReview: TransferReview?
+    @Published var lastBroadcastReceipt: BroadcastReceipt?
+    @Published var sendMessage: String?
+    @Published var sendErrorMessage: String?
+    @Published var isPreparingTransfer = false
+    @Published var isSendingTransfer = false
+    @Published var walletConnectSessions: [WalletConnectSessionState]
+    @Published var pendingWalletConnectProposal: WalletConnectProposalState?
+    @Published var pendingWalletConnectRequest: WalletConnectRequestState?
+    @Published var walletConnectMessage: String?
+    @Published var isPairingWalletConnect = false
 
     private let defaults: UserDefaults
     private let secureStore: SecureStoring
     private let authenticator: DeviceAuthenticating
     private let chainDataProvider: ChainDataProviding
     private let ubiquitousStore: NSUbiquitousKeyValueStore
+    private var cancellables: Set<AnyCancellable> = []
+    private let walletConnectRuntime: WalletConnectRuntime?
 
     init(
         defaults: UserDefaults = .standard,
@@ -110,6 +143,7 @@ final class WalletStore: ObservableObject {
         chains = Self.loadChains(from: defaults)
         primaryChainID = defaults.string(forKey: DefaultsKey.primaryChainID) ?? WalletNetwork.solana.rawValue
         chainStates = Self.loadChainStates(from: defaults)
+        ownedAssets = Self.loadOwnedAssets(from: defaults)
         diagnosticsEnabled = defaults.bool(forKey: DefaultsKey.diagnosticsEnabled)
         biometricLockEnabled = initialBiometricLockEnabled
         faceIDEnabled = initialBiometricLockEnabled
@@ -126,6 +160,18 @@ final class WalletStore: ObservableObject {
         lastUnlockTimestamp = defaults.object(forKey: DefaultsKey.lastUnlockTimestamp) as? Date
         lockReason = .launch
         isAppLocked = initialHasWallet && storedPasscodeHash?.isEmpty == false
+        sendDraft = nil
+        pendingTransferQuote = nil
+        pendingTransferReview = nil
+        lastBroadcastReceipt = nil
+        sendMessage = nil
+        sendErrorMessage = nil
+        walletConnectSessions = Self.loadWalletConnectSessions(from: defaults)
+        pendingWalletConnectProposal = nil
+        pendingWalletConnectRequest = nil
+        walletConnectMessage = nil
+        isPairingWalletConnect = false
+        walletConnectRuntime = WalletConnectRuntime(projectID: Self.walletConnectProjectID)
 
         clearLegacySecrets()
 
@@ -144,8 +190,12 @@ final class WalletStore: ObservableObject {
 
         upgradeStoredChainsIfPossible()
         normalizePrimaryChain()
+        if ownedAssets.isEmpty {
+            ownedAssets = WalletCoreBridge.defaultAssets(for: chains)
+        }
         balanceSOL = nativeBalance(for: WalletNetwork.solana.rawValue)
         ubiquitousStore.synchronize()
+        bindWalletConnectRuntime()
     }
 
     var shortAddress: String {
@@ -160,6 +210,14 @@ final class WalletStore: ObservableObject {
 
     var currentChain: WalletChain? {
         chains.first(where: { $0.id == primaryChainID }) ?? chains.first
+    }
+
+    var currentAssets: [WalletAssetBalance] {
+        ownedAssets.filter { $0.chainID == primaryChainID && $0.sendable }
+    }
+
+    var currentAsset: WalletAssetBalance? {
+        currentAssets.first(where: \.isNative) ?? currentAssets.first
     }
 
     var portfolioValue: Double {
@@ -211,11 +269,15 @@ final class WalletStore: ObservableObject {
     }
 
     var notifications: [WalletNotification] {
-        [
+        var items: [WalletNotification] = [
             .init(title: "Backup", detail: backupConfirmed ? "Your recovery material is available later behind device authentication." : "Confirm and store your recovery material offline before using the wallet.", severity: backupConfirmed ? "OK" : "Action"),
             .init(title: "What this build covers", detail: "This build derives Bitcoin, Ethereum, and Solana addresses from one recovery phrase and syncs native balances from live networks.", severity: "Guide"),
-            .init(title: "Current send scope", detail: "Receive, secure storage, app lock, and encrypted sync are live here. Network signing and broadcast still need chain-specific service work.", severity: "Note")
+            .init(title: "Current send scope", detail: "Native sends, owned-asset discovery, and WalletConnect approvals run through live chain adapters in this build.", severity: "Live")
         ]
+        if let walletConnectMessage, !walletConnectMessage.isEmpty {
+            items.insert(.init(title: "WalletConnect", detail: walletConnectMessage, severity: "Live"), at: 0)
+        }
+        return items
     }
 
     func createWallet() -> String? {
@@ -229,7 +291,7 @@ final class WalletStore: ObservableObject {
         }
     }
 
-    func importWallet(secret: String, asPrivateKey: Bool, privateKeyChainID: String = WalletNetwork.solana.rawValue) -> String? {
+    func importWallet(secret: String, asPrivateKey: Bool, privateKeyChainID: String = WalletNetwork.solana.rawValue) async -> String? {
         let cleanSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanSecret.isEmpty else {
             return "Enter a recovery phrase or private key."
@@ -245,8 +307,10 @@ final class WalletStore: ObservableObject {
                     return "Recovery phrases are usually 12, 15, 18, 21, or 24 words."
                 }
                 let material = try WalletCoreBridge.importMnemonic(words.joined(separator: " "))
-                try apply(material: material, importType: "Recovery phrase", backupConfirmed: true)
+                let resolvedMaterial = await WalletCoreBridge.resolveImportedMnemonicMaterial(material)
+                try apply(material: resolvedMaterial, importType: "Recovery phrase", backupConfirmed: true)
             }
+            await refreshChains()
             diagnostic("Imported wallet.")
             return nil
         } catch {
@@ -450,11 +514,15 @@ final class WalletStore: ObservableObject {
     }
 
     func saveContact(name: String, address: String, chain: String) {
+        saveContact(name: name, address: address, chain: chain, assetID: nil)
+    }
+
+    func saveContact(name: String, address: String, chain: String, assetID: String?) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedAddress.isEmpty else { return }
-        contacts.removeAll { $0.address == trimmedAddress && $0.chain == chain }
-        contacts.insert(.init(name: trimmedName, address: trimmedAddress, chain: chain), at: 0)
+        contacts.removeAll { $0.address == trimmedAddress && $0.chain == chain && $0.assetID == assetID }
+        contacts.insert(.init(name: trimmedName, address: trimmedAddress, chain: chain, assetID: assetID), at: 0)
         persistContacts()
     }
 
@@ -474,9 +542,20 @@ final class WalletStore: ObservableObject {
         chains = []
         primaryChainID = WalletNetwork.solana.rawValue
         chainStates = [:]
+        ownedAssets = []
         balanceSOL = 0
         isAppLocked = false
         unlockErrorMessage = nil
+        sendDraft = nil
+        pendingTransferQuote = nil
+        pendingTransferReview = nil
+        lastBroadcastReceipt = nil
+        sendMessage = nil
+        sendErrorMessage = nil
+        walletConnectSessions = []
+        pendingWalletConnectProposal = nil
+        pendingWalletConnectRequest = nil
+        walletConnectMessage = nil
         defaults.removeObject(forKey: "unite.native.hasWallet")
         defaults.removeObject(forKey: DefaultsKey.backupConfirmed)
         defaults.removeObject(forKey: DefaultsKey.address)
@@ -485,6 +564,8 @@ final class WalletStore: ObservableObject {
         defaults.removeObject(forKey: DefaultsKey.chains)
         defaults.removeObject(forKey: DefaultsKey.primaryChainID)
         defaults.removeObject(forKey: DefaultsKey.chainStates)
+        defaults.removeObject(forKey: DefaultsKey.ownedAssets)
+        defaults.removeObject(forKey: DefaultsKey.walletConnectSessions)
         defaults.removeObject(forKey: "unite.native.mnemonic")
         defaults.removeObject(forKey: "unite.native.privateKey")
         try? secureStore.removeValue(for: SecureKey.mnemonic)
@@ -549,7 +630,229 @@ final class WalletStore: ObservableObject {
             }
         }
         persistChainStates()
+        await refreshOwnedAssets()
         diagnostic("Chain balance refresh finished.")
+    }
+
+    func refreshOwnedAssets() async {
+        guard hasWallet, !isRefreshingAssets else { return }
+        isRefreshingAssets = true
+        defer { isRefreshingAssets = false }
+
+        let signing = chains.map { WalletCoreBridge.signingContext(mnemonic: mnemonic, privateKey: privateKey, chain: $0) }
+        var refreshed: [WalletAssetBalance] = []
+
+        await withTaskGroup(of: [WalletAssetBalance].self) { group in
+            for item in signing {
+                group.addTask {
+                    guard let service = WalletCoreBridge.service(for: item.chain.id) else { return [] }
+                    return (try? await service.discoverAssets(for: item.chain)) ?? []
+                }
+            }
+
+            for await assets in group {
+                refreshed.append(contentsOf: assets)
+            }
+        }
+
+        if refreshed.isEmpty {
+            ownedAssets = WalletCoreBridge.defaultAssets(for: chains)
+        } else {
+            ownedAssets = refreshed.sorted { lhs, rhs in
+                if lhs.chainID == rhs.chainID {
+                    if lhs.isNative == rhs.isNative {
+                        return lhs.symbol < rhs.symbol
+                    }
+                    return lhs.isNative && !rhs.isNative
+                }
+                return lhs.chainID < rhs.chainID
+            }
+        }
+        persistOwnedAssets()
+    }
+
+    func prepareTransfer(recipient: String, amount: String, assetID: String?, contactName: String) async -> String? {
+        guard let chain = currentChain else { return "No active network is selected." }
+        guard let service = WalletCoreBridge.service(for: chain.id) else { return "That network is not supported." }
+
+        let trimmedRecipient = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard WalletCoreBridge.validateAddress(trimmedRecipient, chainID: chain.id) else {
+            return "The recipient address does not match \(chain.name)."
+        }
+
+        guard let decimalAmount = Decimal(string: amount.trimmingCharacters(in: .whitespacesAndNewlines)), decimalAmount > 0 else {
+            return "Enter an amount greater than zero."
+        }
+
+        let requestedAssetID = assetID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chainAssets = ownedAssets.filter { $0.chainID == chain.id && $0.sendable }
+        let asset = chainAssets.first(where: { $0.id == requestedAssetID })
+            ?? chainAssets.first(where: \.isNative)
+            ?? chainAssets.first
+            ?? chain.network.map {
+                WalletAssetBalance(
+                    chainID: chain.id,
+                    symbol: $0.symbol,
+                    name: $0.displayName,
+                    decimals: $0.decimals,
+                    balance: 0,
+                    isNative: true,
+                    contractAddress: nil,
+                    tokenStandard: .native,
+                    accountAddress: chain.address
+                )
+            }
+        guard let asset else {
+            return "No sendable asset is available on this network."
+        }
+
+        let resolvedAsset: WalletAssetBalance
+        if asset.isNative, let liveBalance = chainStates[chain.id]?.balance {
+            resolvedAsset = WalletAssetBalance(
+                chainID: asset.chainID,
+                symbol: asset.symbol,
+                name: asset.name,
+                decimals: asset.decimals,
+                balance: liveBalance,
+                isNative: asset.isNative,
+                contractAddress: asset.contractAddress,
+                tokenStandard: asset.tokenStandard,
+                accountAddress: asset.accountAddress,
+                sendable: asset.sendable
+            )
+        } else {
+            resolvedAsset = asset
+        }
+
+        let draft = TransferDraft(
+            chainID: chain.id,
+            assetID: resolvedAsset.id,
+            recipient: trimmedRecipient,
+            amount: decimalAmount,
+            saveRecipientName: contactName.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        isPreparingTransfer = true
+        sendMessage = nil
+        sendErrorMessage = nil
+        defer { isPreparingTransfer = false }
+
+        do {
+            let signing = WalletCoreBridge.signingContext(mnemonic: mnemonic, privateKey: privateKey, chain: chain)
+            let quote = try await service.quote(draft: draft, asset: resolvedAsset, sourceChain: chain, signing: signing)
+            sendDraft = draft
+            pendingTransferQuote = quote
+            pendingTransferReview = TransferReview(draft: draft, quote: quote, sourceAddress: chain.address)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func confirmPreparedTransfer() async -> String? {
+        guard let review = pendingTransferReview,
+              let chain = chains.first(where: { $0.id == review.draft.chainID }),
+              let service = WalletCoreBridge.service(for: review.draft.chainID) else {
+            return "No prepared transfer is ready to send."
+        }
+        guard await authorizeSigning() else {
+            return "Authentication is required before signing."
+        }
+
+        isSendingTransfer = true
+        sendErrorMessage = nil
+        defer { isSendingTransfer = false }
+
+        do {
+            let signing = WalletCoreBridge.signingContext(mnemonic: mnemonic, privateKey: privateKey, chain: chain)
+            let receipt = try await service.send(review: review, signing: signing)
+            lastBroadcastReceipt = receipt
+            sendMessage = "\(review.quote.asset.symbol) sent on \(chain.name)."
+            if !review.draft.saveRecipientName.isEmpty {
+                saveContact(name: review.draft.saveRecipientName, address: review.draft.recipient, chain: chain.name, assetID: review.draft.assetID)
+            }
+            clearTransferComposer()
+            await refreshChains()
+            return nil
+        } catch {
+            sendErrorMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    func clearTransferComposer() {
+        sendDraft = nil
+        pendingTransferQuote = nil
+        pendingTransferReview = nil
+    }
+
+    func pairWalletConnect(uri: String) async -> String? {
+        let trimmed = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Paste a WalletConnect URI." }
+        guard let runtime = walletConnectRuntime else {
+            return "WalletConnect is not configured in this build."
+        }
+        isPairingWalletConnect = true
+        defer { isPairingWalletConnect = false }
+        do {
+            try await runtime.pair(uri: trimmed)
+            walletConnectMessage = "Pairing request sent."
+            return nil
+        } catch {
+            walletConnectMessage = error.localizedDescription
+            return error.localizedDescription
+        }
+    }
+
+    func approvePendingWalletConnectProposal() async -> String? {
+        guard let proposal = pendingWalletConnectProposal,
+              let runtime = walletConnectRuntime else { return "No pending proposal is available." }
+        do {
+            try await runtime.approve(proposal: proposal, chains: chains)
+            pendingWalletConnectProposal = nil
+            walletConnectMessage = "WalletConnect session approved."
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func rejectPendingWalletConnectProposal() async {
+        guard let proposal = pendingWalletConnectProposal,
+              let runtime = walletConnectRuntime else { return }
+        await runtime.reject(proposal: proposal)
+        pendingWalletConnectProposal = nil
+        walletConnectMessage = "WalletConnect proposal rejected."
+    }
+
+    func approvePendingWalletConnectRequest() async -> String? {
+        guard let request = pendingWalletConnectRequest,
+              let runtime = walletConnectRuntime else { return "No pending request is available." }
+        guard await authorizeSigning() else {
+            return "Authentication is required before signing."
+        }
+        do {
+            try await runtime.approve(request: request, chains: chains, mnemonic: mnemonic, privateKey: privateKey)
+            pendingWalletConnectRequest = nil
+            walletConnectMessage = "WalletConnect request approved."
+            await refreshChains()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func rejectPendingWalletConnectRequest() async {
+        guard let request = pendingWalletConnectRequest,
+              let runtime = walletConnectRuntime else { return }
+        await runtime.reject(request: request)
+        pendingWalletConnectRequest = nil
+        walletConnectMessage = "WalletConnect request rejected."
+    }
+
+    func disconnectWalletConnectSession(_ session: WalletConnectSessionState) async {
+        guard let runtime = walletConnectRuntime else { return }
+        await runtime.disconnect(topic: session.topic)
     }
 
     private func apply(material: WalletMaterial, importType: String, backupConfirmed: Bool) throws {
@@ -602,9 +905,11 @@ final class WalletStore: ObservableObject {
                 return
             }
 
-            guard material.chains != chains else { return }
+            let existingByID = Dictionary(uniqueKeysWithValues: chains.map { ($0.id, $0) })
+            let mergedChains = material.chains.map { existingByID[$0.id] ?? $0 }
+            guard mergedChains != chains else { return }
             walletEngine = material.engine
-            chains = material.chains
+            chains = mergedChains
             normalizePrimaryChain()
             address = currentChain?.address ?? material.primaryAddress
             try persistWallet()
@@ -670,6 +975,8 @@ final class WalletStore: ObservableObject {
             defaults.set(data, forKey: DefaultsKey.chains)
         }
         persistChainStates()
+        persistOwnedAssets()
+        persistWalletConnectSessions()
         try secureStore.set(mnemonic, for: SecureKey.mnemonic)
         try secureStore.set(privateKey, for: SecureKey.privateKey)
     }
@@ -694,6 +1001,28 @@ final class WalletStore: ObservableObject {
         if let data = try? JSONEncoder().encode(contacts) {
             defaults.set(data, forKey: DefaultsKey.contacts)
         }
+    }
+
+    private func persistOwnedAssets() {
+        if let data = try? JSONEncoder().encode(ownedAssets) {
+            defaults.set(data, forKey: DefaultsKey.ownedAssets)
+        }
+    }
+
+    private static func loadOwnedAssets(from defaults: UserDefaults) -> [WalletAssetBalance] {
+        guard let data = defaults.data(forKey: DefaultsKey.ownedAssets) else { return [] }
+        return (try? JSONDecoder().decode([WalletAssetBalance].self, from: data)) ?? []
+    }
+
+    private func persistWalletConnectSessions() {
+        if let data = try? JSONEncoder().encode(walletConnectSessions) {
+            defaults.set(data, forKey: DefaultsKey.walletConnectSessions)
+        }
+    }
+
+    private static func loadWalletConnectSessions(from defaults: UserDefaults) -> [WalletConnectSessionState] {
+        guard let data = defaults.data(forKey: DefaultsKey.walletConnectSessions) else { return [] }
+        return (try? JSONDecoder().decode([WalletConnectSessionState].self, from: data)) ?? []
     }
 
     private static func loadContacts(from defaults: UserDefaults) -> [WalletContact] {
@@ -763,6 +1092,59 @@ final class WalletStore: ObservableObject {
     private func randomSalt() -> Data {
         let bytes = (0..<16).map { _ in UInt8.random(in: .min ... .max) }
         return Data(bytes)
+    }
+
+    private func bindWalletConnectRuntime() {
+        NotificationCenter.default.publisher(for: .walletConnectPairURI)
+            .compactMap { $0.object as? String }
+            .sink { [weak self] uri in
+                guard let self else { return }
+                Task { _ = await self.pairWalletConnect(uri: uri) }
+            }
+            .store(in: &cancellables)
+
+        walletConnectRuntime?.onSessionsChanged = { [weak self] sessions in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.walletConnectSessions = sessions
+                self.persistWalletConnectSessions()
+            }
+        }
+        walletConnectRuntime?.onProposal = { [weak self] proposal in
+            Task { @MainActor [weak self] in
+                self?.pendingWalletConnectProposal = proposal
+            }
+        }
+        walletConnectRuntime?.onRequest = { [weak self] request in
+            Task { @MainActor [weak self] in
+                self?.pendingWalletConnectRequest = request
+            }
+        }
+        walletConnectRuntime?.onMessage = { [weak self] message in
+            Task { @MainActor [weak self] in
+                self?.walletConnectMessage = message
+            }
+        }
+        walletConnectRuntime?.restorePersistedSessions()
+    }
+
+    private func authorizeSigning() async -> Bool {
+        guard passcodeConfigured else { return false }
+        if faceIDEnabled {
+            do {
+                return try await authenticator.authenticate(reason: "Approve this wallet signature.")
+            } catch {
+                unlockErrorMessage = error.localizedDescription
+                return false
+            }
+        }
+        return !isAppLocked
+    }
+
+    private static var walletConnectProjectID: String? {
+        let raw = Bundle.main.object(forInfoDictionaryKey: "WalletConnectProjectID") as? String
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 
@@ -938,12 +1320,14 @@ struct WalletContact: Identifiable, Codable, Equatable {
     var name: String
     var address: String
     var chain: String
+    var assetID: String?
 
-    init(id: UUID = UUID(), name: String, address: String, chain: String) {
+    init(id: UUID = UUID(), name: String, address: String, chain: String, assetID: String? = nil) {
         self.id = id
         self.name = name
         self.address = address
         self.chain = chain
+        self.assetID = assetID
     }
 
     var shortAddress: String {
@@ -1051,7 +1435,7 @@ struct CoinGeckoSparkline: Decodable, Equatable {
     let price: [Double]
 }
 
-private struct JSONRPCRequest: Encodable {
+struct JSONRPCRequest: Encodable {
     let jsonrpc = "2.0"
     let id = 1
     let method: String
@@ -1063,19 +1447,19 @@ private struct JSONRPCRequest: Encodable {
     }
 }
 
-private struct EthereumBalanceResponse: Decodable {
+struct EthereumBalanceResponse: Decodable {
     let result: String
 }
 
-private struct SolanaBalanceResponse: Decodable {
+struct SolanaBalanceResponse: Decodable {
     let result: SolanaBalanceValue
 }
 
-private struct SolanaBalanceValue: Decodable {
+struct SolanaBalanceValue: Decodable {
     let value: Int64
 }
 
-private struct BlockstreamAddressPayload: Decodable {
+struct BlockstreamAddressPayload: Decodable {
     let chainStats: BlockstreamStats
     let mempoolStats: BlockstreamStats
 
@@ -1085,7 +1469,7 @@ private struct BlockstreamAddressPayload: Decodable {
     }
 }
 
-private struct BlockstreamStats: Decodable {
+struct BlockstreamStats: Decodable {
     let fundedTxoSum: Int64
     let spentTxoSum: Int64
 
@@ -1095,7 +1479,7 @@ private struct BlockstreamStats: Decodable {
     }
 }
 
-private struct AnyEncodable: Encodable {
+struct AnyEncodable: Encodable {
     private let encodeBlock: (Encoder) throws -> Void
 
     init(_ value: Any) {
@@ -1131,7 +1515,7 @@ private struct AnyEncodable: Encodable {
     }
 }
 
-private extension Decimal {
+extension Decimal {
     init(hexString: String) {
         self = 0
         let digits = hexString.replacingOccurrences(of: "0x", with: "")
@@ -1157,5 +1541,423 @@ private extension Decimal {
         formatter.minimumFractionDigits = 0
         formatter.groupingSeparator = ","
         return formatter.string(from: self as NSDecimalNumber) ?? "0"
+    }
+}
+
+struct WalletConnectSessionState: Identifiable, Codable, Equatable {
+    var id: String { topic }
+    let topic: String
+    let name: String
+    let url: String
+    let iconURL: String?
+    let expiryDate: Date?
+    let chains: [String]
+}
+
+struct WalletConnectProposalState: Identifiable, Codable, Equatable {
+    var id: String
+    let pairingTopic: String
+    let name: String
+    let url: String
+    let iconURL: String?
+    let requiredChains: [String]
+    let methods: [String]
+    let events: [String]
+}
+
+struct WalletConnectRequestState: Identifiable, Codable, Equatable {
+    var id: String
+    let topic: String
+    let chainID: String
+    let method: String
+    let dappName: String
+    let paramsPreview: String
+}
+
+extension Notification.Name {
+    static let walletConnectPairURI = Notification.Name("unite.walletconnect.pair-uri")
+}
+
+@MainActor
+private final class WalletConnectRuntime {
+    var onSessionsChanged: (([WalletConnectSessionState]) -> Void)?
+    var onProposal: ((WalletConnectProposalState) -> Void)?
+    var onRequest: ((WalletConnectRequestState) -> Void)?
+    var onMessage: ((String) -> Void)?
+
+    private let projectID: String?
+
+    #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+    private static var configured = false
+    private var cancellables: Set<AnyCancellable> = []
+    private var proposals: [String: Session.Proposal] = [:]
+    private var requests: [String: Request] = [:]
+    private var sessions: [String: Session] = [:]
+    #endif
+
+    init(projectID: String?) {
+        self.projectID = projectID
+        #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+        guard let projectID, !projectID.isEmpty else { return }
+        configureIfNeeded(projectID: projectID)
+        bind()
+        #endif
+    }
+
+    func restorePersistedSessions() {
+        #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+        guard projectID != nil else { return }
+        refreshSessions()
+        #endif
+    }
+
+    func pair(uri: String) async throws {
+        #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+        guard projectID != nil else { throw TransactionServiceError.signingUnavailable }
+        let walletConnectURI = try WalletConnectURI(uriString: uri)
+        try await WalletKit.instance.pair(uri: walletConnectURI)
+        onMessage?("Pairing request sent.")
+        #else
+        throw TransactionServiceError.signingUnavailable
+        #endif
+    }
+
+    func approve(proposal: WalletConnectProposalState, chains: [WalletChain]) async throws {
+        #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+        guard let sdkProposal = proposals[proposal.id] else {
+            throw JSONRPCError.invalidRequest
+        }
+        let namespaces = try buildNamespaces(for: sdkProposal, chains: chains)
+        _ = try await WalletKit.instance.approve(
+            proposalId: sdkProposal.id,
+            namespaces: namespaces,
+            sessionProperties: nil,
+            scopedProperties: nil,
+            proposalRequestsResponses: nil
+        )
+        proposals.removeValue(forKey: proposal.id)
+        refreshSessions()
+        #else
+        throw TransactionServiceError.signingUnavailable
+        #endif
+    }
+
+    func reject(proposal: WalletConnectProposalState) async {
+        #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+        guard let sdkProposal = proposals[proposal.id] else { return }
+        try? await WalletKit.instance.rejectSession(proposalId: sdkProposal.id, reason: .userRejected)
+        proposals.removeValue(forKey: proposal.id)
+        #endif
+    }
+
+    func approve(request: WalletConnectRequestState, chains: [WalletChain], mnemonic: String, privateKey: String) async throws {
+        #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+        guard let sdkRequest = requests[request.id] else {
+            throw JSONRPCError.invalidRequest
+        }
+        let response = try await response(for: sdkRequest, chains: chains, mnemonic: mnemonic, privateKey: privateKey)
+        try await WalletKit.instance.respond(topic: sdkRequest.topic, requestId: sdkRequest.id, response: response)
+        requests.removeValue(forKey: request.id)
+        #else
+        throw TransactionServiceError.signingUnavailable
+        #endif
+    }
+
+    func reject(request: WalletConnectRequestState) async {
+        #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+        guard let sdkRequest = requests[request.id] else { return }
+        let result = RPCResult.error(.init(code: 5000, message: "User rejected request"))
+        try? await WalletKit.instance.respond(topic: sdkRequest.topic, requestId: sdkRequest.id, response: result)
+        requests.removeValue(forKey: request.id)
+        #endif
+    }
+
+    func disconnect(topic: String) async {
+        #if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+        try? await WalletKit.instance.disconnect(topic: topic)
+        sessions.removeValue(forKey: topic)
+        refreshSessions()
+        #endif
+    }
+}
+
+#if canImport(ReownWalletKit) && canImport(WalletConnectNetworking) && canImport(Starscream)
+private final class StarscreamSocketAdapter: WebSocketConnecting {
+    var onConnect: (() -> Void)?
+    var onDisconnect: ((Error?) -> Void)?
+    var onText: ((String) -> Void)?
+
+    var request: URLRequest {
+        get { socket.request }
+        set { socket.request = newValue }
+    }
+
+    private(set) var isConnected = false
+
+    private let socket: WebSocket
+
+    init(url: URL) {
+        let socket = WebSocket(request: URLRequest(url: url))
+        socket.callbackQueue = DispatchQueue(label: "unite.walletconnect.socket", qos: .utility, attributes: .concurrent)
+        self.socket = socket
+        socket.onEvent = { [weak self] event in
+            self?.handle(event: event)
+        }
+    }
+
+    func connect() {
+        socket.connect()
+    }
+
+    func disconnect() {
+        socket.disconnect()
+    }
+
+    func write(string: String, completion: (() -> Void)?) {
+        socket.write(string: string, completion: completion)
+    }
+
+    private func handle(event: WebSocketEvent) {
+        switch event {
+        case .connected:
+            isConnected = true
+            onConnect?()
+        case .disconnected(_, _), .cancelled:
+            isConnected = false
+            onDisconnect?(nil)
+        case .text(let string):
+            onText?(string)
+        case .error(let error):
+            isConnected = false
+            onDisconnect?(error)
+        default:
+            break
+        }
+    }
+}
+
+private extension WalletConnectRuntime {
+    struct RuntimeCryptoProvider: CryptoProvider {
+        func recoverPubKey(signature: EthereumSignature, message: Data) throws -> Data {
+            let serialized = Data(signature.r + signature.s + [signature.v + 27])
+            guard let recovered = WalletCoreBridge.recoverPublicKey(signature: serialized, message: message) else {
+                throw JSONRPCError.internalError
+            }
+            return recovered
+        }
+
+        func keccak256(_ data: Data) -> Data {
+            WalletCoreBridge.keccak256(data)
+        }
+    }
+
+    struct DefaultSocketFactory: WebSocketFactory {
+        func create(with url: URL) -> WebSocketConnecting {
+            StarscreamSocketAdapter(url: url)
+        }
+    }
+
+    func configureIfNeeded(projectID: String) {
+        guard !Self.configured else { return }
+        Networking.configure(
+            groupIdentifier: Bundle.main.bundleIdentifier ?? "app.unite.wallet",
+            projectId: projectID,
+            socketFactory: DefaultSocketFactory()
+        )
+        let redirect = try! AppMetadata.Redirect(native: "unitewallet://walletconnect", universal: nil, linkMode: false)
+        let metadata = AppMetadata(
+            name: "Unite Wallet",
+            description: "Multichain wallet",
+            url: "https://unitewallet.app",
+            icons: ["https://unitewallet.app/icon.png"],
+            redirect: redirect
+        )
+        WalletKit.configure(metadata: metadata, crypto: RuntimeCryptoProvider())
+        Self.configured = true
+    }
+
+    func bind() {
+        WalletKit.instance.sessionsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] sessions in
+                self?.handleSessions(sessions)
+            }
+            .store(in: &cancellables)
+
+        WalletKit.instance.sessionProposalPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] proposal, _ in
+                guard let self else { return }
+                self.proposals[proposal.id] = proposal
+                self.onProposal?(self.state(for: proposal))
+            }
+            .store(in: &cancellables)
+
+        WalletKit.instance.sessionRequestPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] payload in
+                guard let self else { return }
+                let request = payload.request
+                self.requests[self.requestKey(topic: request.topic, id: request.id)] = request
+                self.onRequest?(self.state(for: request, peerName: self.sessions[request.topic]?.peer.name ?? "Connected app"))
+            }
+            .store(in: &cancellables)
+
+        WalletKit.instance.sessionDeletePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshSessions()
+            }
+            .store(in: &cancellables)
+
+        WalletKit.instance.sessionSettlePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshSessions()
+            }
+            .store(in: &cancellables)
+    }
+
+    func refreshSessions() {
+        handleSessions(WalletKit.instance.getSessions())
+    }
+
+    func handleSessions(_ sdkSessions: [Session]) {
+        sessions = Dictionary(uniqueKeysWithValues: sdkSessions.map { ($0.topic, $0) })
+        onSessionsChanged?(sdkSessions.map(state(for:)).sorted { $0.name < $1.name })
+    }
+
+    func buildNamespaces(for proposal: Session.Proposal, chains: [WalletChain]) throws -> [String: SessionNamespace] {
+        let accounts = try chains.compactMap { chain -> WalletConnectUtils.Account? in
+            guard let network = chain.network,
+                  let blockchain = Blockchain(namespace: network.caipNamespace, reference: network.caipReference) else {
+                return nil
+            }
+            return try WalletConnectUtils.Account(blockchain: blockchain, accountAddress: chain.address)
+        }
+        let blockchains = accounts.map { $0.blockchain }
+        return try AutoNamespaces.build(
+            sessionProposal: proposal,
+            chains: blockchains,
+            methods: supportedMethods,
+            events: supportedEvents,
+            accounts: accounts
+        )
+    }
+
+    var supportedMethods: [String] {
+        [
+            "eth_sendTransaction",
+            "eth_signTransaction",
+            "personal_sign",
+            "solana_signTransaction",
+            "solana_signAndSendTransaction",
+            "solana_signMessage",
+            "sendTransfer",
+            "signPsbt"
+        ]
+    }
+
+    var supportedEvents: [String] {
+        ["accountsChanged", "chainChanged"]
+    }
+
+    func requestKey(topic: String, id: RPCID) -> String {
+        "\(topic):\(id.description)"
+    }
+
+    func response(for request: Request, chains: [WalletChain], mnemonic: String, privateKey: String) async throws -> RPCResult {
+        switch request.method {
+        case "personal_sign":
+            return try handlePersonalSign(request, chains: chains, mnemonic: mnemonic, privateKey: privateKey)
+        default:
+            return .error(.methodNotFound)
+        }
+    }
+
+    func handlePersonalSign(_ request: Request, chains: [WalletChain], mnemonic: String, privateKey: String) throws -> RPCResult {
+        let params = try request.params.get([String].self)
+        guard params.count >= 2 else { return .error(.invalidParams) }
+        guard let chain = chain(for: request.chainId, chains: chains) else { return .error(.invalidParams) }
+        #if canImport(WalletCore)
+        let signing = WalletCoreBridge.signingContext(mnemonic: mnemonic, privateKey: privateKey, chain: chain)
+        let keyData = try WalletCoreBridge.privateKeyData(for: signing)
+        guard let key = PrivateKey(data: keyData) else { throw TransactionServiceError.missingKey }
+        let messageData = data(fromPersonalSignParam: params[0])
+        let digest = ethereumPersonalMessageHash(messageData)
+        guard let signature = key.sign(digest: digest, curve: .secp256k1) else {
+            return .error(.internalError)
+        }
+        return .response(AnyCodable("0x" + signature.hexString))
+        #else
+        return .error(.internalError)
+        #endif
+    }
+
+    func chain(for blockchain: WalletConnectUtils.Blockchain, chains: [WalletChain]) -> WalletChain? {
+        chains.first {
+            guard let network = $0.network else { return false }
+            return network.caipNamespace == blockchain.namespace && network.caipReference == blockchain.reference
+        }
+    }
+
+    func state(for session: Session) -> WalletConnectSessionState {
+        WalletConnectSessionState(
+            topic: session.topic,
+            name: session.peer.name,
+            url: session.peer.url,
+            iconURL: session.peer.icons.first,
+            expiryDate: session.expiryDate,
+            chains: session.accounts.map(\.blockchainIdentifier).uniqueElements()
+        )
+    }
+
+    func state(for proposal: Session.Proposal) -> WalletConnectProposalState {
+        let namespaces = Array(proposal.requiredNamespaces.values)
+        let chains = namespaces.flatMap { ($0.chains ?? []).map(\.absoluteString) }.uniqueElements()
+        let methods = namespaces.flatMap { Array($0.methods) }.uniqueElements().sorted()
+        let events = namespaces.flatMap { Array($0.events) }.uniqueElements().sorted()
+        return WalletConnectProposalState(
+            id: proposal.id,
+            pairingTopic: proposal.pairingTopic,
+            name: proposal.proposer.name,
+            url: proposal.proposer.url,
+            iconURL: proposal.proposer.icons.first,
+            requiredChains: chains,
+            methods: methods,
+            events: events
+        )
+    }
+
+    func state(for request: Request, peerName: String) -> WalletConnectRequestState {
+        WalletConnectRequestState(
+            id: requestKey(topic: request.topic, id: request.id),
+            topic: request.topic,
+            chainID: request.chainId.absoluteString,
+            method: request.method,
+            dappName: peerName,
+            paramsPreview: request.params.stringRepresentation
+        )
+    }
+
+    func data(fromPersonalSignParam value: String) -> Data {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("0x"), let data = Data(hexString: trimmed) {
+            return data
+        }
+        return Data(trimmed.utf8)
+    }
+
+    func ethereumPersonalMessageHash(_ message: Data) -> Data {
+        let prefix = "\u{19}Ethereum Signed Message:\n\(message.count)"
+        return WalletCoreBridge.keccak256(Data(prefix.utf8) + message)
+    }
+}
+#endif
+
+private extension Array where Element: Hashable {
+    func uniqueElements() -> [Element] {
+        var seen = Set<Element>()
+        return filter { seen.insert($0).inserted }
     }
 }

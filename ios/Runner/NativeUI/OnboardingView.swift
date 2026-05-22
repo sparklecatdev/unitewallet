@@ -179,7 +179,7 @@ struct ImportWalletView: View {
                     errorMessage = nil
                     successMessage = nil
                     Task {
-                        if let message = store.importWallet(secret: secret, asPrivateKey: importPrivateKey, privateKeyChainID: privateKeyNetwork.rawValue) {
+                        if let message = await store.importWallet(secret: secret, asPrivateKey: importPrivateKey, privateKeyChainID: privateKeyNetwork.rawValue) {
                             errorMessage = message
                             isImporting = false
                         } else {

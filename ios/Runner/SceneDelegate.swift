@@ -15,5 +15,16 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = UIHostingController(rootView: UniteRootView())
         self.window = window
         window.makeKeyAndVisible()
+
+        handle(urlContexts: connectionOptions.urlContexts)
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        handle(urlContexts: URLContexts)
+    }
+
+    private func handle(urlContexts: Set<UIOpenURLContext>) {
+        guard let url = urlContexts.first?.url else { return }
+        NotificationCenter.default.post(name: .walletConnectPairURI, object: url.absoluteString)
     }
 }

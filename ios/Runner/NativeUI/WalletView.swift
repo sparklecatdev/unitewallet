@@ -522,7 +522,47 @@ private struct SendScreen: View {
     @State private var recipient = ""
     @State private var amount = ""
     @State private var name = ""
-    @State private var message: String?
+    @State private var selectedAssetID = ""
+    @State private var localMessage: String?
+
+    private var currentChain: WalletChain? {
+        store.currentChain
+    }
+
+    private var currentAssets: [WalletAssetBalance] {
+        store.currentAssets
+    }
+
+    private var selectedAsset: WalletAssetBalance? {
+        currentAssets.first(where: { $0.id == selectedAssetID }) ?? store.currentAsset
+    }
+
+    private var matchingContacts: [WalletContact] {
+        guard let chain = currentChain else { return [] }
+        return store.contacts.filter {
+            $0.chain == chain.name && ($0.assetID == nil || $0.assetID == selectedAsset?.id)
+        }
+    }
+
+    private var addressValidation: (title: String, detail: String, tone: UniteBanner.Tone, icon: String) {
+        guard let chain = currentChain else {
+            return ("No active network", "Choose a network before preparing a transfer.", .caution, "exclamationmark.triangle")
+        }
+        let trimmed = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return ("Destination check", "Paste an address to validate it against \(chain.name).", .neutral, "scope")
+        }
+        if WalletCoreBridge.validateAddress(trimmed, chainID: chain.id) {
+            let shortRecipient: String
+            if trimmed.count > 14 {
+                shortRecipient = "\(trimmed.prefix(6))...\(trimmed.suffix(6))"
+            } else {
+                shortRecipient = trimmed
+            }
+            return ("Address format looks valid", shortRecipient, .success, "checkmark.shield")
+        }
+        return ("Address format does not match \(chain.name)", "This destination does not validate for the selected network.", .caution, "shield.lefthalf.filled")
+    }
 
     var body: some View {
         NavigationStack {
@@ -546,45 +586,145 @@ private struct SendScreen: View {
                         .pickerStyle(.segmented)
                     }
 
+                    if currentAssets.count > 1 {
+                        Picker("Asset", selection: $selectedAssetID) {
+                            ForEach(currentAssets) { asset in
+                                Text(asset.symbol).tag(asset.id)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+
                     UniteTextField(title: "Recipient address", text: $recipient, placeholder: "Paste the destination address")
                     UniteTextField(title: "Amount", text: $amount, placeholder: "0.00", keyboard: .decimalPad)
                     UniteTextField(title: "Save contact name", text: $name, placeholder: "Optional")
 
-                    if let chain = store.currentChain {
+                    if !matchingContacts.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            SectionTitle(title: "Trusted recipients", trailing: "")
+                            ForEach(matchingContacts.prefix(3)) { contact in
+                                Button {
+                                    recipient = contact.address
+                                    if name.isEmpty {
+                                        name = contact.name
+                                    }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(contact.name)
+                                                .roundedFont(15, weight: .black)
+                                            Text(contact.shortAddress)
+                                                .roundedFont(13, weight: .bold)
+                                                .foregroundStyle(UniteTheme.muted)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "arrow.up.right.circle")
+                                            .font(.system(size: 18, weight: .bold))
+                                            .foregroundStyle(UniteTheme.soft)
+                                    }
+                                    .padding(14)
+                                    .background(UniteTheme.panel, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    if let asset = selectedAsset {
                         UniteBanner(
-                            title: WalletCoreBridge.validateAddress(recipient, chainID: chain.id) || recipient.isEmpty ? "Address format looks valid" : "Address format does not match \(chain.name)",
-                            detail: recipient.isEmpty ? "Paste an address to validate it against the selected network." : chain.address,
-                            tone: WalletCoreBridge.validateAddress(recipient, chainID: chain.id) || recipient.isEmpty ? .success : .caution,
-                            icon: recipient.isEmpty ? "scope" : "shield.lefthalf.filled"
+                            title: "\(asset.symbol) available",
+                            detail: "\(asset.balance.formattedString(maxFractionDigits: min(asset.decimals, 8))) \(asset.symbol) on \(asset.accountAddress)",
+                            tone: .neutral,
+                            icon: "wallet.bifold"
                         )
                     }
 
-                    if let message {
+                    UniteBanner(
+                        title: addressValidation.title,
+                        detail: addressValidation.detail,
+                        tone: addressValidation.tone,
+                        icon: addressValidation.icon
+                    )
+
+                    if let review = store.pendingTransferReview {
+                        TransferReviewCard(review: review)
+                    }
+
+                    if let receipt = store.lastBroadcastReceipt {
                         UniteBanner(
-                            title: "Saved for later",
+                            title: "Transfer submitted",
+                            detail: receipt.txHash,
+                            tone: .success,
+                            icon: "paperplane"
+                        )
+                    }
+
+                    if let message = store.sendMessage ?? localMessage {
+                        UniteBanner(
+                            title: "Transfer update",
                             detail: message,
                             tone: .success,
                             icon: "checkmark.circle"
                         )
                     }
 
-                    UniteButton(title: "Save recipient", systemImage: "person.crop.circle.badge.plus", tone: .secondary) {
-                        guard let chain = store.currentChain else { return }
-                        guard WalletCoreBridge.validateAddress(recipient, chainID: chain.id) else { return }
-                        store.saveContact(name: name.isEmpty ? chain.symbol : name, address: recipient, chain: chain.name)
-                        message = "Recipient saved to the local address book for \(chain.name)."
+                    if let error = store.sendErrorMessage {
+                        UniteBanner(
+                            title: "Transfer blocked",
+                            detail: error,
+                            tone: .caution,
+                            icon: "exclamationmark.triangle"
+                        )
                     }
 
-                    UniteBanner(
-                        title: "Network transfer service still needs chain adapters",
-                        detail: "This screen validates network format and stores trusted recipients now. Chain-specific signing and broadcast are still being wired in the runtime layer.",
-                        tone: .caution,
-                        icon: "arrow.trianglehead.2.clockwise"
-                    )
+                    UniteButton(
+                        title: store.pendingTransferReview == nil ? "Prepare transfer" : "Refresh quote",
+                        systemImage: "arrow.up.right",
+                        isLoading: store.isPreparingTransfer
+                    ) {
+                        Task {
+                            localMessage = await store.prepareTransfer(
+                                recipient: recipient,
+                                amount: amount,
+                                assetID: selectedAsset?.id,
+                                contactName: name
+                            )
+                        }
+                    }
+
+                    if store.pendingTransferReview != nil {
+                        UniteButton(
+                            title: "Sign and broadcast",
+                            systemImage: "faceid",
+                            isLoading: store.isSendingTransfer
+                        ) {
+                            Task {
+                                localMessage = await store.confirmPreparedTransfer()
+                            }
+                        }
+
+                        UniteButton(title: "Clear draft", systemImage: "xmark", tone: .secondary) {
+                            store.clearTransferComposer()
+                            localMessage = nil
+                        }
+                    }
                 }
                 .padding(18)
             }
             .background(UniteTheme.ink)
+            .onAppear {
+                if selectedAssetID.isEmpty {
+                    selectedAssetID = store.currentAsset?.id ?? ""
+                }
+            }
+            .onChange(of: store.primaryChainID) { _ in
+                selectedAssetID = store.currentAsset?.id ?? ""
+            }
+            .onChange(of: currentAssets.map(\.id)) { _ in
+                if currentAssets.contains(where: { $0.id == selectedAssetID }) == false {
+                    selectedAssetID = store.currentAsset?.id ?? ""
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Close") { dismiss() }
@@ -830,26 +970,94 @@ private struct LayoutPreviewCard: View {
 
 private struct WalletConnectHubView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: WalletStore
+    @State private var uri = ""
+    @State private var localMessage: String?
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                UniteSectionHeader(
-                    eyebrow: "WalletConnect",
-                    title: "Connection center",
-                    detail: "The QR entry point has been reserved for WalletConnect so receive addresses only live behind explicit Receive actions."
-                )
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    UniteSectionHeader(
+                        eyebrow: "WalletConnect",
+                        title: "Connection center",
+                        detail: "Paste a `wc:` URI, review requested chains and methods, and approve signatures behind device authentication."
+                    )
 
-                UniteBanner(
-                    title: "Pairing is not active yet",
-                    detail: "The QR entry point is now dedicated to WalletConnect, but the live session adapter still needs to be integrated before production use.",
-                    tone: .caution,
-                    icon: "qrcode.viewfinder"
-                )
+                    UniteTextField(title: "Pair URI", text: $uri, placeholder: "wc:...")
 
-                Spacer()
+                    UniteButton(
+                        title: "Pair session",
+                        systemImage: "link",
+                        isLoading: store.isPairingWalletConnect
+                    ) {
+                        Task {
+                            localMessage = await store.pairWalletConnect(uri: uri)
+                        }
+                    }
+
+                    if let message = store.walletConnectMessage ?? localMessage {
+                        UniteBanner(
+                            title: "WalletConnect update",
+                            detail: message,
+                            tone: localMessage == nil ? .success : .caution,
+                            icon: "link.badge.plus"
+                        )
+                    }
+
+                    if let proposal = store.pendingWalletConnectProposal {
+                        WalletConnectProposalCard(proposal: proposal)
+
+                        UniteButton(title: "Approve proposal", systemImage: "checkmark.shield") {
+                            Task {
+                                localMessage = await store.approvePendingWalletConnectProposal()
+                            }
+                        }
+
+                        UniteButton(title: "Reject proposal", systemImage: "xmark", tone: .caution) {
+                            Task {
+                                await store.rejectPendingWalletConnectProposal()
+                            }
+                        }
+                    }
+
+                    if let request = store.pendingWalletConnectRequest {
+                        WalletConnectRequestCard(request: request)
+
+                        UniteButton(title: "Approve request", systemImage: "faceid") {
+                            Task {
+                                localMessage = await store.approvePendingWalletConnectRequest()
+                            }
+                        }
+
+                        UniteButton(title: "Reject request", systemImage: "xmark", tone: .caution) {
+                            Task {
+                                await store.rejectPendingWalletConnectRequest()
+                            }
+                        }
+                    }
+
+                    SectionTitle(title: "Active sessions", trailing: "")
+
+                    if store.walletConnectSessions.isEmpty {
+                        UniteBanner(
+                            title: "No active sessions",
+                            detail: "Paste a WalletConnect URI to start pairing.",
+                            tone: .neutral,
+                            icon: "link"
+                        )
+                    } else {
+                        ForEach(store.walletConnectSessions) { session in
+                            WalletConnectSessionRow(session: session) {
+                                Task {
+                                    await store.disconnectWalletConnectSession(session)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(22)
             }
-            .padding(22)
             .background(UniteTheme.ink)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -857,7 +1065,101 @@ private struct WalletConnectHubView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .walletConnectPairURI)) { notification in
+            if let value = notification.object as? String {
+                uri = value
+            }
+        }
         .preferredColorScheme(.dark)
+    }
+}
+
+private struct TransferReviewCard: View {
+    let review: TransferReview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: "Review", trailing: "")
+            TransferReviewRow(label: "Send", value: "\(review.draft.amount.formattedString(maxFractionDigits: min(review.quote.asset.decimals, 8))) \(review.quote.asset.symbol)")
+            TransferReviewRow(label: "To", value: review.draft.recipient)
+            TransferReviewRow(label: "From", value: review.sourceAddress)
+            TransferReviewRow(label: "Fee", value: "\(review.quote.fee.formattedString(maxFractionDigits: 8)) \(review.quote.feeSymbol)")
+            TransferReviewRow(label: "Network", value: review.quote.networkDetail)
+            TransferReviewRow(label: "Total debit", value: "\(review.quote.totalDebit.formattedString(maxFractionDigits: min(review.quote.asset.decimals, 8))) \(review.quote.asset.symbol)")
+        }
+        .uniteCard()
+    }
+}
+
+private struct TransferReviewRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .roundedFont(12, weight: .black)
+                .foregroundStyle(UniteTheme.muted)
+            Text(value)
+                .roundedFont(14, weight: .bold)
+                .textSelection(.enabled)
+        }
+    }
+}
+
+private struct WalletConnectProposalCard: View {
+    let proposal: WalletConnectProposalState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: proposal.name, trailing: "Proposal")
+            TransferReviewRow(label: "URL", value: proposal.url)
+            TransferReviewRow(label: "Chains", value: proposal.requiredChains.joined(separator: ", "))
+            TransferReviewRow(label: "Methods", value: proposal.methods.joined(separator: ", "))
+            if proposal.events.isEmpty == false {
+                TransferReviewRow(label: "Events", value: proposal.events.joined(separator: ", "))
+            }
+        }
+        .uniteCard()
+    }
+}
+
+private struct WalletConnectRequestCard: View {
+    let request: WalletConnectRequestState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: request.dappName, trailing: request.method)
+            TransferReviewRow(label: "Chain", value: request.chainID)
+            TransferReviewRow(label: "Payload", value: request.paramsPreview)
+        }
+        .uniteCard()
+    }
+}
+
+private struct WalletConnectSessionRow: View {
+    let session: WalletConnectSessionState
+    let disconnect: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(session.name)
+                    .roundedFont(15, weight: .black)
+                Text(session.chains.joined(separator: ", "))
+                    .roundedFont(12, weight: .bold)
+                    .foregroundStyle(UniteTheme.muted)
+                Text(session.url)
+                    .roundedFont(12, weight: .medium)
+                    .foregroundStyle(UniteTheme.soft)
+            }
+            Spacer()
+            Button("Disconnect", action: disconnect)
+                .roundedFont(13, weight: .black)
+                .foregroundStyle(UniteTheme.red)
+        }
+        .padding(14)
+        .background(UniteTheme.panel, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 

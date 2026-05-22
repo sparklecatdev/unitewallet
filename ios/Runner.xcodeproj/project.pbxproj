@@ -19,6 +19,9 @@
 		2A00000C0000000000000001 /* DeviceSecurity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A00010A0000000000000001 /* DeviceSecurity.swift */; };
 		2A0000090000000000000001 /* WalletCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2A0002010000000000000001 /* WalletCore */; };
 		2A00000A0000000000000001 /* WalletCoreSwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 2A0002020000000000000001 /* WalletCoreSwiftProtobuf */; };
+		2A00000D0000000000000001 /* ReownWalletKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2A0002030000000000000001 /* ReownWalletKit */; };
+		2A00000E0000000000000001 /* WalletConnectNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = 2A0002040000000000000001 /* WalletConnectNetworking */; };
+		2A00000F0000000000000001 /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = 2A0002050000000000000001 /* Starscream */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
@@ -85,6 +88,9 @@
 			files = (
 				2A0000090000000000000001 /* WalletCore in Frameworks */,
 				2A00000A0000000000000001 /* WalletCoreSwiftProtobuf in Frameworks */,
+				2A00000D0000000000000001 /* ReownWalletKit in Frameworks */,
+				2A00000E0000000000000001 /* WalletConnectNetworking in Frameworks */,
+				2A00000F0000000000000001 /* Starscream in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -186,6 +192,9 @@
 			packageProductDependencies = (
 				2A0002010000000000000001 /* WalletCore */,
 				2A0002020000000000000001 /* WalletCoreSwiftProtobuf */,
+				2A0002030000000000000001 /* ReownWalletKit */,
+				2A0002040000000000000001 /* WalletConnectNetworking */,
+				2A0002050000000000000001 /* Starscream */,
 			);
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
@@ -222,6 +231,8 @@
 			mainGroup = 97C146E51CF9000F007C117D;
 			packageReferences = (
 				2A0002000000000000000001 /* XCRemoteSwiftPackageReference "wallet-core" */,
+				2A0002060000000000000001 /* XCRemoteSwiftPackageReference "reown-swift" */,
+				2A0002070000000000000001 /* XCRemoteSwiftPackageReference "Starscream" */,
 			);
 			productRefGroup = 97C146EF1CF9000F007C117D /* Products */;
 			projectDirPath = "";
@@ -310,6 +321,22 @@
 				kind = branch;
 			};
 		};
+		2A0002060000000000000001 /* XCRemoteSwiftPackageReference "reown-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/reown-com/reown-swift";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+		2A0002070000000000000001 /* XCRemoteSwiftPackageReference "Starscream" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/daltoniam/Starscream";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -322,6 +349,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2A0002000000000000000001 /* XCRemoteSwiftPackageReference "wallet-core" */;
 			productName = WalletCoreSwiftProtobuf;
+		};
+		2A0002030000000000000001 /* ReownWalletKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2A0002060000000000000001 /* XCRemoteSwiftPackageReference "reown-swift" */;
+			productName = ReownWalletKit;
+		};
+		2A0002040000000000000001 /* WalletConnectNetworking */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2A0002060000000000000001 /* XCRemoteSwiftPackageReference "reown-swift" */;
+			productName = WalletConnectNetworking;
+		};
+		2A0002050000000000000001 /* Starscream */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2A0002070000000000000001 /* XCRemoteSwiftPackageReference "Starscream" */;
+			productName = Starscream;
 		};
 /* End XCSwiftPackageProductDependency section */
 
