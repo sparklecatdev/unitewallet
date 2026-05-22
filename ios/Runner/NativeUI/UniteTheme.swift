@@ -13,6 +13,12 @@ enum UniteTheme {
     static let yellow = Color(red: 1.0, green: 0.78, blue: 0.34)
     static let blue = Color(red: 0.38, green: 0.68, blue: 1.0)
     static let violet = Color(red: 0.62, green: 0.54, blue: 1.0)
+    static let primaryAction = Color.white
+    static let primaryActionText = Color.black
+    static let caution = yellow
+    static let success = mint
+    static let secondaryText = muted
+    static let cardEmphasis = Color.white.opacity(0.06)
 }
 
 extension View {
@@ -25,6 +31,14 @@ extension View {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(UniteTheme.line, lineWidth: 1)
                     )
+            )
+    }
+
+    func uniteField() -> some View {
+        background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(UniteTheme.line, lineWidth: 1)
             )
     }
 
@@ -42,6 +56,164 @@ private extension Font.Weight {
             return .semibold
         }
         return self
+    }
+}
+
+struct UniteButton: View {
+    let title: String
+    var systemImage: String? = nil
+    var isLoading = false
+    var isEnabled = true
+    var tone: Tone = .primary
+    let action: () -> Void
+
+    enum Tone {
+        case primary
+        case secondary
+        case caution
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if isLoading {
+                    ProgressView()
+                        .tint(foregroundColor)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
+                }
+                Text(title)
+                    .lineLimit(1)
+            }
+            .roundedFont(16, weight: .bold)
+            .foregroundStyle(foregroundColor)
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(backgroundColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(borderColor, lineWidth: tone == .primary ? 0 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled || isLoading)
+        .opacity((!isEnabled || isLoading) ? 0.72 : 1)
+    }
+
+    private var backgroundColor: Color {
+        switch tone {
+        case .primary:
+            return UniteTheme.primaryAction
+        case .secondary:
+            return UniteTheme.raised
+        case .caution:
+            return UniteTheme.red.opacity(0.16)
+        }
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .primary:
+            return UniteTheme.primaryActionText
+        case .secondary:
+            return .white
+        case .caution:
+            return UniteTheme.red
+        }
+    }
+
+    private var borderColor: Color {
+        switch tone {
+        case .primary:
+            return .clear
+        case .secondary:
+            return UniteTheme.line
+        case .caution:
+            return UniteTheme.red.opacity(0.3)
+        }
+    }
+}
+
+struct UniteBanner: View {
+    let title: String
+    let detail: String
+    var tone: Tone = .neutral
+    var icon: String = "info.circle"
+
+    enum Tone {
+        case neutral
+        case success
+        case caution
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(tint.opacity(0.14), in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .roundedFont(15, weight: .black)
+                Text(detail)
+                    .roundedFont(13, weight: .medium)
+                    .foregroundStyle(UniteTheme.soft)
+            }
+            Spacer()
+        }
+        .padding(16)
+        .background(background, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(tint.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private var tint: Color {
+        switch tone {
+        case .neutral:
+            return UniteTheme.blue
+        case .success:
+            return UniteTheme.success
+        case .caution:
+            return UniteTheme.caution
+        }
+    }
+
+    private var background: Color {
+        switch tone {
+        case .neutral:
+            return UniteTheme.cardEmphasis
+        case .success:
+            return UniteTheme.success.opacity(0.08)
+        case .caution:
+            return UniteTheme.caution.opacity(0.08)
+        }
+    }
+}
+
+struct UniteSectionHeader: View {
+    let eyebrow: String?
+    let title: String
+    let detail: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let eyebrow {
+                Text(eyebrow.uppercased())
+                    .roundedFont(11, weight: .black)
+                    .foregroundStyle(UniteTheme.muted)
+                    .tracking(1.2)
+            }
+            Text(title)
+                .roundedFont(30, weight: .black)
+            if let detail {
+                Text(detail)
+                    .roundedFont(14, weight: .medium)
+                    .foregroundStyle(UniteTheme.soft)
+            }
+        }
     }
 }
 

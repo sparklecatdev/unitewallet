@@ -28,7 +28,7 @@ final class WalletStore: ObservableObject {
     @Published var balanceSOL: Double = 0
     @Published var marketAssets: [MarketAsset] = MarketAsset.defaults
     @Published var marketUpdatedAt: Date?
-    @Published var marketMessage = "Read-only CoinGecko market data"
+    @Published var marketMessage = "Read-only CoinGecko beta data"
     @Published var isRefreshingMarket = false
     @Published var marketAutoRefreshEnabled: Bool
     @Published var watchedMarketAssetIDs: Set<String>
@@ -97,27 +97,27 @@ final class WalletStore: ObservableObject {
 
     var serviceStatuses: [WalletServiceStatus] {
         [
-            .init(name: "Local signing", detail: "Recovery material stays on device", state: hasWallet ? "Ready" : "Setup"),
-            .init(name: "Device lock", detail: biometricLockEnabled ? "Device authentication required" : "Disabled", state: biometricLockEnabled ? "On" : "Off"),
-            .init(name: "Market data", detail: marketUpdatedAt.map { "Last updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Manual refresh available", state: "Read-only"),
-            .init(name: "Beta scope", detail: "Create, import, backup, receive, read-only markets", state: "Scoped")
+            .init(name: "Wallet security", detail: "Recovery material stays on this device", state: hasWallet ? "Ready" : "Setup"),
+            .init(name: "Screen lock", detail: biometricLockEnabled ? "Sensitive views require device authentication" : "Turn on device authentication", state: biometricLockEnabled ? "On" : "Review"),
+            .init(name: "Market data", detail: marketUpdatedAt.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Pull to refresh when you need it", state: "Read-only"),
+            .init(name: "Beta access", detail: "Create, import, backup, receive, and market watch", state: "Active")
         ]
     }
 
     var activities: [WalletActivity] {
         [
-            .init(icon: "checkmark.seal", title: "Wallet ready", detail: "Solana beta account active", amount: "", status: hasWallet ? "Ready" : "Setup"),
-            .init(icon: "lock.shield", title: "Device lock", detail: biometricLockEnabled ? "Sensitive actions require auth" : "Turn on biometric lock", amount: "", status: biometricLockEnabled ? "On" : "Review"),
-            .init(icon: "key.viewfinder", title: "Backup", detail: backupConfirmed ? "Recovery material confirmed" : "Backup confirmation required", amount: "", status: backupConfirmed ? "Saved" : "Action"),
-            .init(icon: "chart.line.uptrend.xyaxis", title: "Markets", detail: marketMessage, amount: "", status: marketUpdatedAt == nil ? "Idle" : "Synced")
+            .init(icon: "checkmark.seal", title: "Wallet ready", detail: "Your Solana beta wallet is set up and available on this device.", amount: "", status: hasWallet ? "Ready" : "Setup"),
+            .init(icon: "lock.shield", title: "Screen lock", detail: biometricLockEnabled ? "Recovery and wallet details stay behind device authentication." : "Turn on device authentication before wider testing.", amount: "", status: biometricLockEnabled ? "On" : "Review"),
+            .init(icon: "key.viewfinder", title: "Backup reminder", detail: backupConfirmed ? "Your recovery material has been confirmed and can be reviewed later." : "Confirm your recovery material before moving funds.", amount: "", status: backupConfirmed ? "Saved" : "Action"),
+            .init(icon: "chart.line.uptrend.xyaxis", title: "Market watch", detail: marketUpdatedAt == nil ? "Read-only prices are ready when you refresh." : "Read-only prices are up to date for this beta.", amount: "", status: marketUpdatedAt == nil ? "Idle" : "Live")
         ]
     }
 
     var notifications: [WalletNotification] {
         [
-            .init(title: "Backup", detail: backupConfirmed ? "Recovery material is available behind device authentication." : "Confirm and store your recovery material offline.", severity: backupConfirmed ? "OK" : "Action"),
-            .init(title: "Beta scope", detail: "Send, swap, buy, alerts, and push notifications are intentionally unavailable in this beta.", severity: "Info"),
-            .init(title: "Security", detail: biometricLockEnabled ? "The app locks when it leaves the foreground." : "Turn on device lock before wider testing.", severity: biometricLockEnabled ? "OK" : "Review")
+            .init(title: "Backup", detail: backupConfirmed ? "Your recovery material is available later behind device authentication." : "Confirm and store your recovery material offline before using the wallet.", severity: backupConfirmed ? "OK" : "Action"),
+            .init(title: "What this beta covers", detail: "This beta is focused on create, import, backup, receive, and read-only markets.", severity: "Guide"),
+            .init(title: "What comes later", detail: "Send, swap, buy, alerts, and custom network controls stay out of the way until they are ready.", severity: "Note")
         ]
     }
 

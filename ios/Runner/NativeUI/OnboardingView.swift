@@ -4,6 +4,7 @@ struct OnboardingView: View {
     @EnvironmentObject private var store: WalletStore
     @State private var showingImport = false
     @State private var errorMessage: String?
+    @State private var isCreating = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -18,53 +19,62 @@ struct OnboardingView: View {
                     .foregroundStyle(.black)
             }
 
-            VStack(spacing: 8) {
-                Text("Unite")
-                    .roundedFont(42, weight: .black)
-                Text("One place to manage crypto.")
-                    .roundedFont(17, weight: .medium)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(UniteTheme.soft)
-            }
+            UniteSectionHeader(
+                eyebrow: "Private beta",
+                title: "Unite",
+                detail: "Create or import a wallet, keep recovery material on this device, and follow the market without extra noise."
+            )
+            .multilineTextAlignment(.center)
 
             VStack(spacing: 12) {
-                Button {
-                    errorMessage = store.createWallet()
-                } label: {
-                    Label("Create wallet", systemImage: "plus")
-                        .roundedFont(16, weight: .bold)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                VStack(alignment: .leading, spacing: 10) {
+                    UniteButton(
+                        title: isCreating ? "Creating wallet..." : "Create a new wallet",
+                        systemImage: isCreating ? nil : "plus",
+                        isLoading: isCreating,
+                        action: {
+                            isCreating = true
+                            errorMessage = nil
+                            Task {
+                                errorMessage = store.createWallet()
+                                isCreating = false
+                            }
+                        }
+                    )
+                    Text("Start fresh with a new recovery phrase. You will review and confirm it before entering the wallet.")
+                        .roundedFont(13, weight: .medium)
+                        .foregroundStyle(UniteTheme.secondaryText)
                 }
 
-                Button {
-                    showingImport = true
-                } label: {
-                    Label("Import wallet", systemImage: "square.and.arrow.down")
-                        .roundedFont(16, weight: .bold)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(UniteTheme.line))
+                VStack(alignment: .leading, spacing: 10) {
+                    UniteButton(
+                        title: "Import an existing wallet",
+                        systemImage: "square.and.arrow.down",
+                        tone: .secondary,
+                        action: { showingImport = true }
+                    )
+                    Text("Use a 12 to 24 word recovery phrase or a supported private key from a wallet you already control.")
+                        .roundedFont(13, weight: .medium)
+                        .foregroundStyle(UniteTheme.secondaryText)
                 }
             }
-            .buttonStyle(.plain)
             .padding(.top, 8)
 
             if let errorMessage {
-                Text(errorMessage)
-                    .roundedFont(14, weight: .bold)
-                    .foregroundStyle(UniteTheme.yellow)
-                    .multilineTextAlignment(.center)
+                UniteBanner(
+                    title: "Couldn’t finish that step",
+                    detail: errorMessage,
+                    tone: .caution,
+                    icon: "exclamationmark.triangle"
+                )
             }
 
-            Text("Keys stay on this device.")
-                .roundedFont(12, weight: .medium)
-                .foregroundStyle(UniteTheme.muted)
-                .multilineTextAlignment(.center)
+            UniteBanner(
+                title: "Private by default",
+                detail: "Recovery material stays on this device and sensitive views can sit behind device authentication.",
+                tone: .neutral,
+                icon: "lock.shield"
+            )
 
             Spacer()
         }
@@ -84,47 +94,74 @@ struct ImportWalletView: View {
     @State private var importPrivateKey = false
     @State private var secret = ""
     @State private var errorMessage: String?
+    @State private var isImporting = false
+    @State private var successMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Import wallet")
-                .roundedFont(30, weight: .black)
+            UniteSectionHeader(
+                eyebrow: "Bring your wallet in",
+                title: "Import wallet",
+                detail: "Paste a recovery phrase or private key from a wallet you already control."
+            )
 
             Picker("Import type", selection: $importPrivateKey) {
-                Text("Seed").tag(false)
+                Text("Recovery phrase").tag(false)
                 Text("Private key").tag(true)
             }
             .pickerStyle(.segmented)
+
+            Text(importPrivateKey ? "Use a supported Solana private key. Keep spacing and characters exactly as exported." : "Use a 12, 15, 18, 21, or 24 word recovery phrase with the original order intact.")
+                .roundedFont(13, weight: .medium)
+                .foregroundStyle(UniteTheme.secondaryText)
 
             TextEditor(text: $secret)
                 .roundedFont(15, weight: .semibold)
                 .frame(minHeight: 140)
                 .padding(12)
                 .scrollContentBackground(.hidden)
-                .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(UniteTheme.line))
+                .uniteField()
 
             if let errorMessage {
-                Text(errorMessage)
-                    .roundedFont(14, weight: .bold)
-                    .foregroundStyle(UniteTheme.yellow)
+                UniteBanner(
+                    title: "Import needs another look",
+                    detail: errorMessage,
+                    tone: .caution,
+                    icon: "exclamationmark.triangle"
+                )
             }
 
-            Button {
-                if let message = store.importWallet(secret: secret, asPrivateKey: importPrivateKey) {
-                    errorMessage = message
-                } else {
-                    dismiss()
-                }
-            } label: {
-                Label("Import", systemImage: "checkmark")
-                    .roundedFont(16, weight: .bold)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            if let successMessage {
+                UniteBanner(
+                    title: "Wallet imported",
+                    detail: successMessage,
+                    tone: .success,
+                    icon: "checkmark.circle"
+                )
             }
-            .buttonStyle(.plain)
+
+            UniteButton(
+                title: isImporting ? "Importing wallet..." : "Import wallet",
+                systemImage: isImporting ? nil : "checkmark",
+                isLoading: isImporting,
+                isEnabled: !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                action: {
+                    isImporting = true
+                    errorMessage = nil
+                    successMessage = nil
+                    Task {
+                        if let message = store.importWallet(secret: secret, asPrivateKey: importPrivateKey) {
+                            errorMessage = message
+                            isImporting = false
+                        } else {
+                            successMessage = "Your wallet is ready on this device."
+                            try? await Task.sleep(nanoseconds: 450_000_000)
+                            isImporting = false
+                            dismiss()
+                        }
+                    }
+                }
+            )
 
             Spacer()
         }
@@ -141,35 +178,54 @@ struct BackupView: View {
         VStack(alignment: .leading, spacing: 18) {
             Spacer()
 
-            Text("Back up your wallet")
-                .roundedFont(30, weight: .black)
+            UniteSectionHeader(
+                eyebrow: "Recovery step",
+                title: "Back up your wallet",
+                detail: "Take a minute to store your recovery phrase before entering the wallet."
+            )
 
-            Text("This recovery phrase is the only way to recover this wallet on a new device. Store it offline and never share it.")
-                .roundedFont(15, weight: .semibold)
-                .foregroundStyle(UniteTheme.yellow)
+            UniteBanner(
+                title: "This phrase is the only backup",
+                detail: "If you lose this phrase, you cannot recover the wallet on a new device. If someone else sees it, they can take the funds.",
+                tone: .caution,
+                icon: "exclamationmark.shield"
+            )
 
-            Text(store.mnemonic)
-                .roundedFont(15, weight: .bold)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(18)
-                .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Recovery phrase")
+                    .roundedFont(13, weight: .black)
+                    .foregroundStyle(UniteTheme.secondaryText)
+                Text(store.mnemonic)
+                    .roundedFont(15, weight: .bold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(UniteTheme.line, lineWidth: 1)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Before you continue")
+                    .roundedFont(16, weight: .black)
+                Text("Write the phrase down offline, keep the order exactly as shown, and avoid screenshots, cloud notes, or shared devices.")
+                    .roundedFont(14, weight: .medium)
+                    .foregroundStyle(UniteTheme.soft)
+            }
+            .padding(18)
+            .background(UniteTheme.panel, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             Toggle("I saved this recovery phrase somewhere safe.", isOn: $saved)
                 .roundedFont(15, weight: .semibold)
                 .tint(.white)
 
-            Button {
-                store.confirmBackup()
-            } label: {
-                Label("Continue to wallet", systemImage: "checkmark")
-                    .roundedFont(16, weight: .bold)
-                    .foregroundStyle(saved ? .black : UniteTheme.muted)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(saved ? .white : UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }
-            .disabled(!saved)
-            .buttonStyle(.plain)
+            UniteButton(
+                title: "Continue to wallet",
+                systemImage: "checkmark",
+                isEnabled: saved,
+                action: { store.confirmBackup() }
+            )
 
             Spacer()
         }

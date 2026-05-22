@@ -7,7 +7,7 @@ struct WalletView: View {
     @State private var showingReceive = false
     @State private var showingSearch = false
     @State private var showingSecurity = false
-    @State private var showingBetaNotes = false
+    @State private var showingGuide = false
     @State private var showingSecretReveal = false
 
     private var solAsset: MarketAsset {
@@ -25,7 +25,7 @@ struct WalletView: View {
                     onSecurity: { showingSecurity = true },
                     onSearch: { showingSearch = true },
                     onReceive: { showingReceive = true },
-                    onBetaNotes: { showingBetaNotes = true }
+                    onGuide: { showingGuide = true }
                 )
                 .padding(.top, 12)
 
@@ -74,7 +74,7 @@ struct WalletView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $showingBetaNotes) {
+        .sheet(isPresented: $showingGuide) {
             NotificationsView()
                 .environmentObject(store)
                 .presentationDetents([.medium, .large])
@@ -103,17 +103,19 @@ private struct WalletTopBar: View {
     let onSecurity: () -> Void
     let onSearch: () -> Void
     let onReceive: () -> Void
-    let onBetaNotes: () -> Void
+    let onGuide: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
             Button(action: onSecurity) {
                 Image(systemName: "lock.shield")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(UniteTheme.soft)
-                    .frame(width: 40, height: 40)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(UniteTheme.raised, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Security")
 
             Button(action: onSearch) {
                 HStack(spacing: 10) {
@@ -131,21 +133,25 @@ private struct WalletTopBar: View {
             .buttonStyle(.plain)
 
             HStack(spacing: 8) {
-                Button(action: onBetaNotes) {
+                Button(action: onGuide) {
                     Image(systemName: "info.circle")
-                        .font(.system(size: 21, weight: .bold))
-                        .foregroundStyle(UniteTheme.soft)
-                        .frame(width: 34, height: 40)
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(UniteTheme.raised, in: Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Beta guide")
 
                 Button(action: onReceive) {
                     Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 23, weight: .bold))
-                        .foregroundStyle(UniteTheme.soft)
-                        .frame(width: 34, height: 40)
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(UniteTheme.raised, in: Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Receive address")
             }
         }
     }
@@ -159,20 +165,21 @@ private struct WalletHero: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            HStack(spacing: 10) {
-                Text("Wallet beta")
-                    .roundedFont(19, weight: .black)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .black))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(UniteTheme.raised, in: Capsule())
+            Text("Solana beta")
+                .roundedFont(14, weight: .black)
+                .foregroundStyle(UniteTheme.secondaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(UniteTheme.cardEmphasis, in: Capsule())
 
             Text(usd(portfolioValue))
                 .roundedFont(52, weight: .black)
                 .minimumScaleFactor(0.78)
                 .lineLimit(1)
+
+            Text("Wallet value on supported beta network")
+                .roundedFont(14, weight: .medium)
+                .foregroundStyle(UniteTheme.secondaryText)
 
             HStack(spacing: 7) {
                 Image(systemName: change >= 0 ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
@@ -184,7 +191,7 @@ private struct WalletHero: View {
 
             HStack(spacing: 8) {
                 Text(address)
-                Text("\(chainCount) supported chain")
+                Text("\(chainCount) supported beta chain")
             }
             .roundedFont(13, weight: .bold)
             .foregroundStyle(UniteTheme.muted)
@@ -201,15 +208,16 @@ private struct WalletPrimaryActions: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            WalletActionButton(title: "Receive", icon: "arrow.down", action: onReceive)
-            WalletActionButton(title: "Recovery", icon: "key", action: onRecovery)
-            WalletActionButton(title: "Security", icon: "shield.lefthalf.filled", action: onSecurity)
+            WalletActionButton(title: "Receive", subtitle: "Copy address", icon: "arrow.down", action: onReceive)
+            WalletActionButton(title: "Reveal", subtitle: "Recovery access", icon: "key", action: onRecovery)
+            WalletActionButton(title: "Security", subtitle: "Lock settings", icon: "shield.lefthalf.filled", action: onSecurity)
         }
     }
 }
 
 private struct WalletActionButton: View {
     let title: String
+    let subtitle: String
     let icon: String
     let action: () -> Void
 
@@ -223,6 +231,10 @@ private struct WalletActionButton: View {
                     .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 Text(title)
                     .roundedFont(15, weight: .black)
+                Text(subtitle)
+                    .roundedFont(12, weight: .bold)
+                    .foregroundStyle(UniteTheme.secondaryText)
+                    .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
         }
@@ -240,8 +252,11 @@ private struct ReceiveSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Receive")
-                .roundedFont(32, weight: .black)
+            UniteSectionHeader(
+                eyebrow: "Receive",
+                title: "Share this Solana address",
+                detail: "Use this address for Solana transfers during the beta."
+            )
 
             FakeQRCode(seed: selectedChain.address)
                 .frame(width: 220, height: 220)
@@ -259,22 +274,21 @@ private struct ReceiveSheet: View {
             .padding(16)
             .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-            Button {
+            UniteButton(
+                title: copied ? "Address copied" : "Copy address",
+                systemImage: copied ? "checkmark" : "doc.on.doc",
+                tone: copied ? .secondary : .primary
+            ) {
                 UIPasteboard.general.string = selectedChain.address
                 copied = true
-            } label: {
-                Label(copied ? "Copied" : "Copy address", systemImage: copied ? "checkmark" : "doc.on.doc")
-                    .roundedFont(16, weight: .black)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            .buttonStyle(.plain)
 
-            Text("Only receive assets on Solana during this beta. Sending funds from another network can permanently lose funds.")
-                .roundedFont(13, weight: .bold)
-                .foregroundStyle(UniteTheme.yellow)
+            UniteBanner(
+                title: "Solana only",
+                detail: "Only receive assets on Solana during this beta. Funds sent from another network can be lost permanently.",
+                tone: .caution,
+                icon: "exclamationmark.shield"
+            )
 
             Spacer()
         }
@@ -298,15 +312,34 @@ private struct WalletSearchView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Search")
-                .roundedFont(32, weight: .black)
+            UniteSectionHeader(
+                eyebrow: "Search",
+                title: "Find supported chains",
+                detail: "Search the beta address book by chain, symbol, or address."
+            )
             UniteTextField(title: "Chain or address", text: $query, placeholder: "Solana, address")
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 10) {
-                    ForEach(results) { chain in
-                        WalletChainRow(chain: chain)
-                            .padding(14)
-                            .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    if query.isEmpty {
+                        UniteBanner(
+                            title: "Search stays narrow in beta",
+                            detail: "Only supported wallet networks and stored addresses appear here right now.",
+                            tone: .neutral,
+                            icon: "scope"
+                        )
+                    } else if results.isEmpty {
+                        UniteBanner(
+                            title: "No matching chain",
+                            detail: "Try a symbol, full chain name, or the address you expect to receive on.",
+                            tone: .caution,
+                            icon: "magnifyingglass"
+                        )
+                    } else {
+                        ForEach(results) { chain in
+                            WalletChainRow(chain: chain)
+                                .padding(14)
+                                .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
                     }
                 }
             }
@@ -333,7 +366,7 @@ private struct UniteTextField: View {
                 .autocorrectionDisabled()
                 .roundedFont(17, weight: .bold)
                 .padding(16)
-                .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .uniteField()
         }
     }
 }
@@ -375,6 +408,7 @@ private struct WalletAssetSection: View {
 
     var body: some View {
         VStack(spacing: 16) {
+            SectionTitle(title: "Assets", trailing: "Wallet beta")
             HStack(spacing: 22) {
                 ForEach(WalletList.allCases, id: \.self) { list in
                     Button {
@@ -513,15 +547,12 @@ private struct WalletTokenRow: View {
 
 private struct BetaInfoCard: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Beta scope")
-                .roundedFont(18, weight: .black)
-            Text("This build intentionally supports secure wallet create/import, backup, receive, and read-only markets. Send, swap, buy, and alerts are deferred until they are fully implemented.")
-                .roundedFont(13, weight: .bold)
-                .foregroundStyle(UniteTheme.muted)
-        }
-        .padding(16)
-        .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        UniteBanner(
+            title: "Current beta scope",
+            detail: "This wallet currently focuses on secure setup, backup, receive, and read-only market tracking.",
+            tone: .neutral,
+            icon: "checkmark.shield"
+        )
     }
 }
 
@@ -543,7 +574,7 @@ private struct HistoryPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionTitle(title: "Status", trailing: "")
+            SectionTitle(title: "At a glance", trailing: "")
             ForEach(activities) { activity in
                 HStack(spacing: 12) {
                     Image(systemName: activity.icon)
@@ -577,8 +608,11 @@ private struct SecurityCenterView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Security center")
-                    .roundedFont(32, weight: .black)
+                UniteSectionHeader(
+                    eyebrow: "Security",
+                    title: "Device lock and access",
+                    detail: "Control how this beta wallet unlocks on this device."
+                )
                 SecurityScoreCard(score: store.biometricLockEnabled ? "Strong" : "Needs review")
                 SecurityToggle(title: "Biometric lock", detail: "Require device authentication before wallet access and recovery reveal", isOn: Binding(get: { store.biometricLockEnabled }, set: { store.setBiometricLockEnabled($0) }))
                 SecurityToggle(title: "Diagnostics logs", detail: "Minimal device-side logs without recovery material or private keys", isOn: Binding(get: { store.diagnosticsEnabled }, set: { store.setDiagnosticsEnabled($0) }))
@@ -592,21 +626,18 @@ private struct SecurityCenterView: View {
                 .padding(16)
                 .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                Button {
+                UniteButton(
+                    title: isUnlocking ? "Authenticating..." : "Check device unlock",
+                    systemImage: isUnlocking ? "hourglass" : "faceid",
+                    isEnabled: !isUnlocking,
+                    tone: .primary
+                ) {
                     isUnlocking = true
                     Task {
                         _ = await store.unlockApp()
                         isUnlocking = false
                     }
-                } label: {
-                    Text(isUnlocking ? "Authenticating..." : "Unlock now")
-                        .roundedFont(16, weight: .black)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
-                .buttonStyle(.plain)
             }
             .padding(22)
         }
@@ -661,8 +692,11 @@ private struct NotificationsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Beta notes")
-                .roundedFont(32, weight: .black)
+            UniteSectionHeader(
+                eyebrow: "Guide",
+                title: "What this beta includes",
+                detail: "Use these notes to understand what is ready now and what is still intentionally missing."
+            )
             ForEach(store.notifications) { notification in
                 HStack(spacing: 12) {
                     Text(notification.severity)

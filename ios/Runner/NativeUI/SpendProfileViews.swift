@@ -9,30 +9,29 @@ struct ProfileView: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("Profile")
-                        .roundedFont(32, weight: .black)
+                    UniteSectionHeader(
+                        eyebrow: "Profile",
+                        title: "Wallet settings",
+                        detail: "Review your account, device security, and beta support details."
+                    )
 
                     ProfileRow(label: "Address", value: store.shortAddress)
                     ProfileRow(label: "Key engine", value: store.visibleEngineName)
-                    ProfileRow(label: "Supported chain", value: store.chains.first?.name ?? "Solana")
-                    ProfileRow(label: "Imported by", value: store.importType)
+                    ProfileRow(label: "Primary network", value: store.chains.first?.name ?? "Solana")
+                    ProfileRow(label: "Setup method", value: store.importType)
 
-                    Button {
+                    UniteButton(title: "Supported network details", systemImage: "square.grid.2x2", tone: .secondary) {
                         showingChains = true
-                    } label: {
-                        Label("Supported chain details", systemImage: "square.grid.2x2")
-                            .roundedFont(15, weight: .black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
-                            .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
-                    .buttonStyle(.plain)
                 }
                 .uniteCard()
 
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Security")
-                        .roundedFont(24, weight: .black)
+                    UniteSectionHeader(
+                        eyebrow: "Security",
+                        title: "Device protection",
+                        detail: "Choose how this wallet unlocks and what support can never see."
+                    )
 
                     Toggle("Biometric lock", isOn: Binding(
                         get: { store.biometricLockEnabled },
@@ -52,58 +51,47 @@ struct ProfileView: View {
                         ServiceStatusRow(status: status)
                     }
 
-                    Button {
+                    UniteButton(title: "Reveal recovery material", systemImage: "lock", tone: .secondary) {
                         showingSecret = true
-                    } label: {
-                        Label("Recovery material", systemImage: "lock")
-                            .roundedFont(15, weight: .black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
-                            .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
-                    .buttonStyle(.plain)
                 }
                 .uniteCard()
 
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Support")
-                        .roundedFont(24, weight: .black)
+                    UniteSectionHeader(
+                        eyebrow: "Support",
+                        title: "Help and policies",
+                        detail: "Use these links for feedback, support, and beta policy details."
+                    )
 
                     Link(destination: URL(string: "mailto:\(WalletStore.SupportResource.email)")!) {
-                        SupportRow(title: "Email support", detail: WalletStore.SupportResource.email, icon: "envelope")
+                        SupportRow(title: "Email support", detail: "Direct support inbox", icon: "envelope")
                     }
 
                     Link(destination: WalletStore.SupportResource.feedbackURL) {
-                        SupportRow(title: "Beta feedback", detail: WalletStore.SupportResource.feedbackURL.absoluteString, icon: "bubble.left.and.bubble.right")
+                        SupportRow(title: "Beta feedback", detail: "Share a bug or product note", icon: "bubble.left.and.bubble.right")
                     }
 
                     Link(destination: WalletStore.SupportResource.privacyURL) {
-                        SupportRow(title: "Privacy policy", detail: WalletStore.SupportResource.privacyURL.absoluteString, icon: "hand.raised")
+                        SupportRow(title: "Privacy policy", detail: "How wallet data is handled", icon: "hand.raised")
                     }
 
                     Link(destination: WalletStore.SupportResource.termsURL) {
-                        SupportRow(title: "Terms and risk disclosure", detail: WalletStore.SupportResource.termsURL.absoluteString, icon: "doc.text")
+                        SupportRow(title: "Terms and risk disclosure", detail: "Beta rules and wallet risk basics", icon: "doc.text")
                     }
                 }
                 .uniteCard()
 
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Beta limitations")
-                        .roundedFont(24, weight: .black)
-                    Text("This build does not support send, swap, buy, alerts, or custom RPC routing yet. The goal is secure create/import, backup, receive, and read-only markets.")
-                        .roundedFont(14, weight: .medium)
-                        .foregroundStyle(UniteTheme.muted)
+                    UniteSectionHeader(
+                        eyebrow: "Beta expectations",
+                        title: "What this build is for",
+                        detail: "This release is focused on setup, backup, receive, and read-only markets. Trading and routing features are still intentionally out of scope."
+                    )
 
-                    Button(role: .destructive) {
+                    UniteButton(title: "Remove wallet from device", systemImage: "trash", tone: .caution) {
                         store.removeWallet()
-                    } label: {
-                        Label("Remove wallet from device", systemImage: "trash")
-                            .roundedFont(15, weight: .black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
-                            .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
-                    .buttonStyle(.plain)
                 }
                 .uniteCard()
             }
@@ -148,9 +136,11 @@ private struct ChainDirectoryView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Supported chains")
-                    .roundedFont(30, weight: .black)
-                    .padding(.bottom, 4)
+                UniteSectionHeader(
+                    eyebrow: "Networks",
+                    title: "Supported beta chains",
+                    detail: "These are the networks currently exposed in this wallet build."
+                )
 
                 ForEach(chains) { chain in
                     HStack(spacing: 12) {
@@ -248,17 +238,26 @@ struct SecretRevealView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Sensitive keys")
-                .roundedFont(30, weight: .black)
+            UniteSectionHeader(
+                eyebrow: "Recovery access",
+                title: "Reveal sensitive material",
+                detail: "Authenticate on this device before recovery words or keys are shown."
+            )
 
-            Text("Scammers may ask for these words or keys to drain your wallet. Unite support will never ask for them.")
-                .roundedFont(15, weight: .bold)
-                .foregroundStyle(UniteTheme.yellow)
+            UniteBanner(
+                title: "Never share this with anyone",
+                detail: "Scammers use recovery words and private keys to empty wallets. Support will never ask for them.",
+                tone: .caution,
+                icon: "hand.raised.fill"
+            )
 
             if let message = store.unlockErrorMessage, !revealed {
-                Text(message)
-                    .roundedFont(13, weight: .bold)
-                    .foregroundStyle(UniteTheme.yellow)
+                UniteBanner(
+                    title: "Authentication didn’t finish",
+                    detail: message,
+                    tone: .caution,
+                    icon: "exclamationmark.triangle"
+                )
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -270,7 +269,7 @@ struct SecretRevealView: View {
                         Text(secretValue)
                             .textSelection(.enabled)
                     } else {
-                        Text("Authenticate on this device to reveal the stored recovery material.")
+                        Text("Locked until you authenticate on this device.")
                     }
                 }
                 .roundedFont(15, weight: .bold)
@@ -279,22 +278,28 @@ struct SecretRevealView: View {
             .padding(18)
             .background(UniteTheme.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-            Button {
+            if revealed {
+                UniteBanner(
+                    title: "Visible only for this session",
+                    detail: "Move carefully. Do not screenshot, share, or paste this into messages or websites.",
+                    tone: .success,
+                    icon: "eye.slash"
+                )
+            }
+
+            UniteButton(
+                title: isUnlocking ? "Authenticating..." : (revealed ? "Revealed on this device" : "Reveal on this device"),
+                systemImage: isUnlocking ? "hourglass" : (revealed ? "checkmark.shield" : "faceid"),
+                isLoading: isUnlocking,
+                isEnabled: !revealed,
+                tone: revealed ? .secondary : .primary
+            ) {
                 isUnlocking = true
                 Task {
                     revealed = await store.unlockApp()
                     isUnlocking = false
                 }
-            } label: {
-                Text(isUnlocking ? "Authenticating..." : (revealed ? "Authenticated" : "Reveal on this device"))
-                    .roundedFont(16, weight: .black)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            .buttonStyle(.plain)
-            .disabled(isUnlocking || revealed)
 
             Spacer()
         }

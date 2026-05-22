@@ -12,8 +12,11 @@ struct MarketView: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("Market")
-                            .roundedFont(32, weight: .black)
+                        UniteSectionHeader(
+                            eyebrow: "Markets",
+                            title: "Read-only market watch",
+                            detail: "Track pricing and momentum without leaving the beta wallet."
+                        )
                         Spacer()
                         Button {
                             Task { await store.refreshMarket() }
@@ -26,7 +29,7 @@ struct MarketView: View {
                         .buttonStyle(.plain)
                     }
 
-                    Text(store.marketUpdatedAt.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Public CoinGecko market data")
+                    Text(store.marketUpdatedAt.map { "Updated \($0.formatted(date: .omitted, time: .shortened))" } ?? "Read-only CoinGecko beta data")
                         .roundedFont(13, weight: .medium)
                         .foregroundStyle(UniteTheme.muted)
 
@@ -36,19 +39,22 @@ struct MarketView: View {
                     Text("\((sol?.change24h ?? 0) >= 0 ? "+" : "")\(String(format: "%.2f", sol?.change24h ?? 0))% 24h")
                         .roundedFont(15, weight: .black)
                         .foregroundStyle((sol?.change24h ?? 0) >= 0 ? UniteTheme.green : UniteTheme.red)
-                    Text(store.marketMessage)
-                        .roundedFont(15, weight: .bold)
-                        .foregroundStyle(store.marketMessage.contains("unavailable") ? UniteTheme.red : UniteTheme.green)
+                    UniteBanner(
+                        title: marketStatusTitle,
+                        detail: store.marketMessage,
+                        tone: marketStatusTone,
+                        icon: marketStatusTone == .caution ? "wifi.exclamationmark" : "chart.line.uptrend.xyaxis"
+                    )
 
                     HStack(spacing: 10) {
                         Button {
                             store.setMarketAutoRefreshEnabled(!store.marketAutoRefreshEnabled)
                         } label: {
-                            Label(store.marketAutoRefreshEnabled ? "Auto live" : "Manual", systemImage: store.marketAutoRefreshEnabled ? "bolt.fill" : "pause.fill")
+                            Label(store.marketAutoRefreshEnabled ? "Auto refresh" : "Manual refresh", systemImage: store.marketAutoRefreshEnabled ? "bolt.fill" : "pause.fill")
                                 .roundedFont(13, weight: .bold)
                                 .foregroundStyle(store.marketAutoRefreshEnabled ? .black : .white)
-                                .padding(.horizontal, 12)
-                                .frame(height: 36)
+                                .padding(.horizontal, 14)
+                                .frame(height: 40)
                                 .background(store.marketAutoRefreshEnabled ? .white : UniteTheme.raised, in: Capsule())
                         }
                         .buttonStyle(.plain)
@@ -61,8 +67,8 @@ struct MarketView: View {
                             Label(sort.rawValue, systemImage: "arrow.up.arrow.down")
                                 .roundedFont(13, weight: .bold)
                                 .foregroundStyle(.white)
-                                .padding(.horizontal, 12)
-                                .frame(height: 36)
+                                .padding(.horizontal, 14)
+                                .frame(height: 40)
                                 .background(UniteTheme.raised, in: Capsule())
                         }
                     }
@@ -81,7 +87,7 @@ struct MarketView: View {
                                     .roundedFont(13, weight: .bold)
                                     .foregroundStyle(filter == option ? .black : .white)
                                     .padding(.horizontal, 14)
-                                    .frame(height: 38)
+                                    .frame(height: 40)
                                     .background(filter == option ? .white : UniteTheme.raised, in: Capsule())
                             }
                             .buttonStyle(.plain)
@@ -91,14 +97,12 @@ struct MarketView: View {
                 }
 
                 if visibleAssets.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(emptyTitle)
-                            .roundedFont(18, weight: .black)
-                        Text(emptyDetail)
-                            .roundedFont(14, weight: .medium)
-                            .foregroundStyle(UniteTheme.muted)
-                    }
-                    .uniteCard()
+                    UniteBanner(
+                        title: emptyTitle,
+                        detail: emptyDetail,
+                        tone: query.isEmpty && !store.marketMessage.localizedCaseInsensitiveContains("unavailable") ? .neutral : .caution,
+                        icon: query.isEmpty ? "tray" : "magnifyingglass"
+                    )
                 } else {
                     ForEach(visibleAssets) { asset in
                         MarketRow(
@@ -165,11 +169,27 @@ struct MarketView: View {
     }
 
     private var emptyTitle: String {
-        filter == .watchlist ? "No watched assets" : "No markets found"
+        if query.isEmpty && filter == .all {
+            return "Markets are still loading"
+        }
+        return filter == .watchlist ? "No watched assets" : "No markets found"
     }
 
     private var emptyDetail: String {
-        filter == .watchlist ? "Tap the star on an asset to keep it here." : "Try a different search or filter."
+        if query.isEmpty && filter == .all {
+            return store.marketMessage.localizedCaseInsensitiveContains("unavailable")
+                ? "Market data is temporarily unavailable. Pull to refresh when your connection is back."
+                : "Market rows appear here after the latest beta data refresh finishes."
+        }
+        return filter == .watchlist ? "Tap the star on an asset to keep it here." : "Try a different search or filter."
+    }
+
+    private var marketStatusTitle: String {
+        marketStatusTone == .caution ? "Market data delayed" : "Market data ready"
+    }
+
+    private var marketStatusTone: UniteBanner.Tone {
+        store.marketMessage.localizedCaseInsensitiveContains("unavailable") ? .caution : .success
     }
 
     private func runMarketLoop() async {
@@ -283,6 +303,13 @@ struct MarketDetailView: View {
                 StatTile(title: "Volume", value: usd(asset.volume))
             }
 
+            UniteBanner(
+                title: "Research only in this beta",
+                detail: "Market detail is read-only right now. Use it to watch prices and set alerts, not to place trades.",
+                tone: .neutral,
+                icon: "eye"
+            )
+
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
@@ -329,17 +356,7 @@ struct MarketDetailView: View {
             .uniteCard(cornerRadius: 20)
 
             HStack(spacing: 12) {
-                Button {
-                    showingBuy = true
-                } label: {
-                    Label("Buy", systemImage: "plus")
-                        .roundedFont(15, weight: .black)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-                }
-                .buttonStyle(.plain)
+                UniteButton(title: "Buy coming later", systemImage: "clock", isEnabled: false, tone: .secondary) {}
 
                 Button {
                     store.toggleMarketWatch(asset)
@@ -362,20 +379,17 @@ struct MarketDetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Buy \(asset.symbol)")
                     .roundedFont(32, weight: .black)
-                Text("Quotes require a connected ramp provider. Fees and limits will be shown before checkout.")
-                    .roundedFont(15, weight: .bold)
-                    .foregroundStyle(UniteTheme.soft)
+                UniteBanner(
+                    title: "Not in the TestFlight scope",
+                    detail: "Quotes and checkout are intentionally disabled until ramp providers and compliance flows are fully integrated.",
+                    tone: .caution,
+                    icon: "creditcard.trianglebadge.exclamationmark"
+                )
                 StatTile(title: "Indicative price", value: usd(asset.price))
                 StatTile(title: "Network", value: asset.name)
-                Button {} label: {
-                    Text("Get quote")
-                        .roundedFont(16, weight: .black)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                UniteButton(title: "Close", systemImage: "xmark", tone: .secondary) {
+                    showingBuy = false
                 }
-                .buttonStyle(.plain)
                 Spacer()
             }
             .padding(22)
