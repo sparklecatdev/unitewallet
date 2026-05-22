@@ -1,0 +1,15 @@
+{
+  "originHash" : "0226bc5b57bdc8c703e0c2be6f5aae21dea7a997a81654b5636f8d9c98f72a42",
+  "pins" : [
+    {
+      "identity" : "wallet-core",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/trustwallet/wallet-core",
+      "state" : {
+        "branch" : "master",
+        "revision" : "62ef27c56c6769b3aec3c5167d925dc085646a5c"
+      }
+    }
+  ],
+  "version" : 3
+}
