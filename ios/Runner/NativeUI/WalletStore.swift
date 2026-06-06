@@ -15,6 +15,16 @@ import Starscream
 #endif
 #endif
 
+protocol UbiquitousKeyValueStoring: AnyObject {
+    func string(forKey aKey: String) -> String?
+    func set(_ aValue: Any?, forKey aKey: String)
+    func removeObject(forKey aKey: String)
+    @discardableResult
+    func synchronize() -> Bool
+}
+
+extension NSUbiquitousKeyValueStore: UbiquitousKeyValueStoring {}
+
 @MainActor
 final class WalletStore: ObservableObject {
     enum SecureKey {
@@ -73,7 +83,7 @@ final class WalletStore: ObservableObject {
     @Published var isRefreshingAssets = false
     @Published var diagnosticsEnabled: Bool
     @Published var biometricLockEnabled: Bool
-    @Published var contacts: [WalletContact]
+    @Published var contacts: [WalletStoreContact]
     @Published var balanceSOL: Double = 0
     @Published var marketAssets: [MarketAsset] = MarketAsset.defaults
     @Published var marketUpdatedAt: Date?
@@ -111,7 +121,8 @@ final class WalletStore: ObservableObject {
     private let secureStore: SecureStoring
     private let authenticator: DeviceAuthenticating
     private let chainDataProvider: ChainDataProviding
-    private let ubiquitousStore: NSUbiquitousKeyValueStore
+    private let adapterManager: AdapterManager
+    private let ubiquitousStore: UbiquitousKeyValueStoring
     private var cancellables: Set<AnyCancellable> = []
     private let walletConnectRuntime: WalletConnectRuntime?
 
@@ -120,12 +131,14 @@ final class WalletStore: ObservableObject {
         secureStore: SecureStoring = KeychainSecureStore.shared,
         authenticator: DeviceAuthenticating = DeviceSecurity.shared,
         chainDataProvider: ChainDataProviding = LiveChainDataProvider(),
-        ubiquitousStore: NSUbiquitousKeyValueStore = .default
+        adapterManager: AdapterManager = Core.shared.adapterManager,
+        ubiquitousStore: UbiquitousKeyValueStoring = NSUbiquitousKeyValueStore.default
     ) {
         self.defaults = defaults
         self.secureStore = secureStore
         self.authenticator = authenticator
         self.chainDataProvider = chainDataProvider
+        self.adapterManager = adapterManager
         self.ubiquitousStore = ubiquitousStore
 
         let initialHasWallet = defaults.bool(forKey: DefaultsKey.hasWallet)
@@ -526,7 +539,7 @@ final class WalletStore: ObservableObject {
         persistContacts()
     }
 
-    func removeContact(_ contact: WalletContact) {
+    func removeContact(_ contact: WalletStoreContact) {
         contacts.removeAll { $0.id == contact.id }
         persistContacts()
     }
@@ -639,21 +652,7 @@ final class WalletStore: ObservableObject {
         isRefreshingAssets = true
         defer { isRefreshingAssets = false }
 
-        let signing = chains.map { WalletCoreBridge.signingContext(mnemonic: mnemonic, privateKey: privateKey, chain: $0) }
-        var refreshed: [WalletAssetBalance] = []
-
-        await withTaskGroup(of: [WalletAssetBalance].self) { group in
-            for item in signing {
-                group.addTask {
-                    guard let service = WalletCoreBridge.service(for: item.chain.id) else { return [] }
-                    return (try? await service.discoverAssets(for: item.chain)) ?? []
-                }
-            }
-
-            for await assets in group {
-                refreshed.append(contentsOf: assets)
-            }
-        }
+        let refreshed = await adapterManager.discoverAssets(for: chains)
 
         if refreshed.isEmpty {
             ownedAssets = WalletCoreBridge.defaultAssets(for: chains)
@@ -673,7 +672,7 @@ final class WalletStore: ObservableObject {
 
     func prepareTransfer(recipient: String, amount: String, assetID: String?, contactName: String) async -> String? {
         guard let chain = currentChain else { return "No active network is selected." }
-        guard let service = WalletCoreBridge.service(for: chain.id) else { return "That network is not supported." }
+        guard adapterManager.isSupported(chainID: chain.id) else { return "That network is not supported." }
 
         let trimmedRecipient = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
         guard WalletCoreBridge.validateAddress(trimmedRecipient, chainID: chain.id) else {
@@ -739,7 +738,7 @@ final class WalletStore: ObservableObject {
 
         do {
             let signing = WalletCoreBridge.signingContext(mnemonic: mnemonic, privateKey: privateKey, chain: chain)
-            let quote = try await service.quote(draft: draft, asset: resolvedAsset, sourceChain: chain, signing: signing)
+            let quote = try await adapterManager.quote(draft: draft, asset: resolvedAsset, chain: chain, signing: signing)
             sendDraft = draft
             pendingTransferQuote = quote
             pendingTransferReview = TransferReview(draft: draft, quote: quote, sourceAddress: chain.address)
@@ -752,7 +751,7 @@ final class WalletStore: ObservableObject {
     func confirmPreparedTransfer() async -> String? {
         guard let review = pendingTransferReview,
               let chain = chains.first(where: { $0.id == review.draft.chainID }),
-              let service = WalletCoreBridge.service(for: review.draft.chainID) else {
+              adapterManager.isSupported(chainID: review.draft.chainID) else {
             return "No prepared transfer is ready to send."
         }
         guard await authorizeSigning() else {
@@ -765,7 +764,7 @@ final class WalletStore: ObservableObject {
 
         do {
             let signing = WalletCoreBridge.signingContext(mnemonic: mnemonic, privateKey: privateKey, chain: chain)
-            let receipt = try await service.send(review: review, signing: signing)
+            let receipt = try await adapterManager.send(review: review, chain: chain, signing: signing)
             lastBroadcastReceipt = receipt
             sendMessage = "\(review.quote.asset.symbol) sent on \(chain.name)."
             if !review.draft.saveRecipientName.isEmpty {
@@ -900,7 +899,7 @@ final class WalletStore: ObservableObject {
             if !mnemonic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 material = try WalletCoreBridge.importMnemonic(mnemonic)
             } else if !privateKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                material = try WalletCoreBridge.importPrivateKey(privateKey)
+                material = try WalletCoreBridge.importPrivateKey(privateKey, chainID: primaryChainID)
             } else {
                 return
             }
@@ -1025,9 +1024,9 @@ final class WalletStore: ObservableObject {
         return (try? JSONDecoder().decode([WalletConnectSessionState].self, from: data)) ?? []
     }
 
-    private static func loadContacts(from defaults: UserDefaults) -> [WalletContact] {
+    private static func loadContacts(from defaults: UserDefaults) -> [WalletStoreContact] {
         guard let data = defaults.data(forKey: DefaultsKey.contacts) else { return [] }
-        return (try? JSONDecoder().decode([WalletContact].self, from: data)) ?? []
+        return (try? JSONDecoder().decode([WalletStoreContact].self, from: data)) ?? []
     }
 
     private func persistMarketPriceAlerts() {
@@ -1215,80 +1214,7 @@ protocol ChainDataProviding {
 
 struct LiveChainDataProvider: ChainDataProviding {
     func fetchBalances(for chains: [WalletChain]) async -> [String: ChainBalanceSnapshot] {
-        await withTaskGroup(of: (String, ChainBalanceSnapshot).self) { group in
-            for chain in chains {
-                group.addTask {
-                    let snapshot = await fetchBalance(for: chain)
-                    return (chain.id, snapshot)
-                }
-            }
-
-            var balances: [String: ChainBalanceSnapshot] = [:]
-            for await (chainID, snapshot) in group {
-                balances[chainID] = snapshot
-            }
-            return balances
-        }
-    }
-
-    private func fetchBalance(for chain: WalletChain) async -> ChainBalanceSnapshot {
-        guard let network = chain.network else {
-            return ChainBalanceSnapshot(balance: 0, updatedAt: nil, status: .failed, message: "Unsupported network")
-        }
-
-        do {
-            let balance: Decimal
-            switch network {
-            case .bitcoin:
-                balance = try await bitcoinBalance(address: chain.address)
-            case .ethereum:
-                balance = try await ethereumBalance(address: chain.address)
-            case .solana:
-                balance = try await solanaBalance(address: chain.address)
-            }
-
-            return ChainBalanceSnapshot(balance: balance, updatedAt: Date(), status: .synced, message: nil)
-        } catch {
-            return ChainBalanceSnapshot(balance: 0, updatedAt: nil, status: .failed, message: error.localizedDescription)
-        }
-    }
-
-    private func bitcoinBalance(address: String) async throws -> Decimal {
-        let url = URL(string: "https://blockstream.info/api/address/\(address)")!
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-
-        let payload = try JSONDecoder().decode(BlockstreamAddressPayload.self, from: data)
-        let sats = payload.chainStats.fundedTxoSum - payload.chainStats.spentTxoSum + payload.mempoolStats.fundedTxoSum - payload.mempoolStats.spentTxoSum
-        return Decimal(sats) / Decimal(100_000_000)
-    }
-
-    private func ethereumBalance(address: String) async throws -> Decimal {
-        let request = JSONRPCRequest(method: "eth_getBalance", params: [address, "latest"])
-        let result = try await postJSONRPC(request, url: URL(string: "https://ethereum-rpc.publicnode.com")!, responseType: EthereumBalanceResponse.self)
-        return Decimal(hexString: result.result) / Decimal(string: "1000000000000000000")!
-    }
-
-    private func solanaBalance(address: String) async throws -> Decimal {
-        let request = JSONRPCRequest(method: "getBalance", params: [address, ["commitment": "confirmed"]])
-        let result = try await postJSONRPC(request, url: URL(string: "https://api.mainnet-beta.solana.com")!, responseType: SolanaBalanceResponse.self)
-        return Decimal(result.result.value) / Decimal(1_000_000_000)
-    }
-
-    private func postJSONRPC<Response: Decodable>(_ request: JSONRPCRequest, url: URL, responseType: Response.Type) async throws -> Response {
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-
-        return try JSONDecoder().decode(Response.self, from: data)
+        await Core.shared.adapterManager.fetchBalances(for: chains)
     }
 }
 
@@ -1315,7 +1241,7 @@ struct WalletNotification: Identifiable, Equatable {
     let severity: String
 }
 
-struct WalletContact: Identifiable, Codable, Equatable {
+struct WalletStoreContact: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var address: String
@@ -1848,13 +1774,7 @@ private extension WalletConnectRuntime {
     var supportedMethods: [String] {
         [
             "eth_sendTransaction",
-            "eth_signTransaction",
-            "personal_sign",
-            "solana_signTransaction",
-            "solana_signAndSendTransaction",
-            "solana_signMessage",
-            "sendTransfer",
-            "signPsbt"
+            "personal_sign"
         ]
     }
 
@@ -1868,10 +1788,40 @@ private extension WalletConnectRuntime {
 
     func response(for request: Request, chains: [WalletChain], mnemonic: String, privateKey: String) async throws -> RPCResult {
         switch request.method {
+        case "eth_sendTransaction":
+            return try await handleEthSendTransaction(request, chains: chains, mnemonic: mnemonic, privateKey: privateKey)
         case "personal_sign":
             return try handlePersonalSign(request, chains: chains, mnemonic: mnemonic, privateKey: privateKey)
         default:
             return .error(.methodNotFound)
+        }
+    }
+
+    func handleEthSendTransaction(_ request: Request, chains: [WalletChain], mnemonic: String, privateKey: String) async throws -> RPCResult {
+        do {
+            let params = try request.params.get([WalletConnectEthereumTransaction].self)
+            guard let transaction = params.first else { return .error(.invalidParams) }
+            guard let chain = chain(for: request.chainId, chains: chains), chain.network?.family == .evm else {
+                return .error(.invalidParams)
+            }
+
+            if let from = transaction.from?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
+               !from.isEmpty,
+               from.lowercased() != chain.address.lowercased() {
+                return .error(.invalidParams)
+            }
+
+            let asset = try await walletConnectAsset(for: transaction, chain: chain)
+            let draft = try walletConnectDraft(for: transaction, asset: asset, chain: chain)
+            let signing = WalletCoreBridge.signingContext(mnemonic: mnemonic, privateKey: privateKey, chain: chain)
+            let quote = try await Core.shared.adapterManager.quote(draft: draft, asset: asset, chain: chain, signing: signing)
+            let review = TransferReview(draft: draft, quote: quote, sourceAddress: chain.address)
+            let receipt = try await Core.shared.adapterManager.send(review: review, chain: chain, signing: signing)
+            return .response(AnyCodable(receipt.txHash))
+        } catch let error as JSONRPCError {
+            return .error(error)
+        } catch {
+            return .error(.init(code: 5000, message: error.localizedDescription))
         }
     }
 
@@ -1952,8 +1902,101 @@ private extension WalletConnectRuntime {
         let prefix = "\u{19}Ethereum Signed Message:\n\(message.count)"
         return WalletCoreBridge.keccak256(Data(prefix.utf8) + message)
     }
+
+    func walletConnectAsset(for transaction: WalletConnectEthereumTransaction, chain: WalletChain) async throws -> WalletAssetBalance {
+        let assets = await Core.shared.adapterManager.discoverAssets(for: [chain])
+        let normalizedData = transaction.data?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if normalizedData.isEmpty || normalizedData == "0x" {
+            guard let asset = assets.first(where: \.isNative) else {
+                throw JSONRPCError.invalidParams
+            }
+            return asset
+        }
+
+        guard let contractAddress = transaction.to?.trimmingCharacters(in: .whitespacesAndNewlines),
+              parseERC20Transfer(data: normalizedData) != nil,
+              let network = chain.network else {
+            throw JSONRPCError.invalidParams
+        }
+
+        if let asset = assets.first(where: { asset in
+            guard let candidate = asset.contractAddress else { return false }
+            return candidate.lowercased() == contractAddress.lowercased()
+        }) {
+            return asset
+        }
+
+        guard let token = network.tokenRegistry.first(where: { token in
+            token.contractAddress?.lowercased() == contractAddress.lowercased()
+        }) else {
+            throw TransactionServiceError.unsupportedAsset
+        }
+
+        return WalletAssetBalance(
+            chainID: chain.id,
+            symbol: token.symbol,
+            name: token.name,
+            decimals: token.decimals,
+            balance: 0,
+            isNative: false,
+            contractAddress: token.contractAddress,
+            tokenStandard: token.tokenStandard,
+            accountAddress: chain.address
+        )
+    }
+
+    func walletConnectDraft(for transaction: WalletConnectEthereumTransaction, asset: WalletAssetBalance, chain: WalletChain) throws -> TransferDraft {
+        let normalizedData = transaction.data?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if normalizedData.isEmpty || normalizedData == "0x" {
+            guard let recipient = transaction.to?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !recipient.isEmpty else {
+                throw JSONRPCError.invalidParams
+            }
+            let amount = Decimal(hexString: transaction.value ?? "0x0") / pow10(asset.decimals)
+            guard amount > 0 else { throw TransactionServiceError.invalidAmount }
+            return TransferDraft(chainID: chain.id, assetID: asset.id, recipient: recipient, amount: amount)
+        }
+
+        guard let transfer = parseERC20Transfer(data: normalizedData) else {
+            throw TransactionServiceError.unsupportedAsset
+        }
+        let callValue = Decimal(hexString: transaction.value ?? "0x0")
+        guard callValue == 0 else { throw JSONRPCError.invalidParams }
+        return TransferDraft(chainID: chain.id, assetID: asset.id, recipient: transfer.recipient, amount: transfer.amount / pow10(asset.decimals))
+    }
+
+    func parseERC20Transfer(data: String) -> (recipient: String, amount: Decimal)? {
+        let normalized = data.stripHexPrefix.lowercased()
+        let selector = "a9059cbb"
+        let expectedLength = selector.count + 64 + 64
+        guard normalized.count == expectedLength,
+              normalized.hasPrefix(selector) else {
+            return nil
+        }
+
+        let recipientStart = normalized.index(normalized.startIndex, offsetBy: selector.count)
+        let recipientEnd = normalized.index(recipientStart, offsetBy: 64)
+        let amountEnd = normalized.index(recipientEnd, offsetBy: 64)
+        let recipientWord = String(normalized[recipientStart..<recipientEnd])
+        let amountWord = String(normalized[recipientEnd..<amountEnd])
+        let recipientHex = String(recipientWord.suffix(40))
+        let recipient = "0x" + recipientHex
+        guard WalletCoreBridge.validateAddress(recipient, chainID: WalletNetwork.ethereum.rawValue) else {
+            return nil
+        }
+        return (recipient, Decimal(hexString: amountWord))
+    }
 }
 #endif
+
+private struct WalletConnectEthereumTransaction: Codable {
+    let from: String?
+    let to: String?
+    let value: String?
+    let data: String?
+}
 
 private extension Array where Element: Hashable {
     func uniqueElements() -> [Element] {

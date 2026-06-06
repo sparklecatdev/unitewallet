@@ -537,7 +537,7 @@ private struct SendScreen: View {
         currentAssets.first(where: { $0.id == selectedAssetID }) ?? store.currentAsset
     }
 
-    private var matchingContacts: [WalletContact] {
+    private var matchingContacts: [WalletStoreContact] {
         guard let chain = currentChain else { return [] }
         return store.contacts.filter {
             $0.chain == chain.name && ($0.assetID == nil || $0.assetID == selectedAsset?.id)

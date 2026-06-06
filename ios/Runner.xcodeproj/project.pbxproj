@@ -22,6 +22,31 @@
 		2A00000D0000000000000001 /* ReownWalletKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2A0002030000000000000001 /* ReownWalletKit */; };
 		2A00000E0000000000000001 /* WalletConnectNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = 2A0002040000000000000001 /* WalletConnectNetworking */; };
 		2A00000F0000000000000001 /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = 2A0002050000000000000001 /* Starscream */; };
+		2B0000010000000000000001 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001010000000000000001 /* Account.swift */; };
+		2B0000020000000000000001 /* AccountFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001020000000000000001 /* AccountFactory.swift */; };
+		2B0000030000000000000001 /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001030000000000000001 /* AccountManager.swift */; };
+		2B0000040000000000000001 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001040000000000000001 /* AppConfig.swift */; };
+		2B0000050000000000000001 /* AdapterFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001050000000000000001 /* AdapterFactory.swift */; };
+		2B0000060000000000000001 /* AdapterManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001060000000000000001 /* AdapterManager.swift */; };
+		2B0000070000000000000001 /* BitcoinAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001070000000000000001 /* BitcoinAdapter.swift */; };
+		2B0000080000000000000001 /* ChainAdapterProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001080000000000000001 /* ChainAdapterProtocol.swift */; };
+		2B0000090000000000000001 /* EthereumAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001090000000000000001 /* EthereumAdapter.swift */; };
+		2B00000A0000000000000001 /* JSONRPCHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B00010A0000000000000001 /* JSONRPCHelper.swift */; };
+		2B00000B0000000000000001 /* SolanaAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B00010B0000000000000001 /* SolanaAdapter.swift */; };
+		2B00000C0000000000000001 /* ContactBookManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B00010C0000000000000001 /* ContactBookManager.swift */; };
+		2B00000D0000000000000001 /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B00010D0000000000000001 /* Core.swift */; };
+		2B00000E0000000000000001 /* CoreServiceLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B00010E0000000000000001 /* CoreServiceLocator.swift */; };
+		2B00000F0000000000000001 /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B00010F0000000000000001 /* DatabaseManager.swift */; };
+		2B0000100000000000000001 /* KeychainStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001100000000000000001 /* KeychainStorage.swift */; };
+		2B0000110000000000000001 /* PasscodeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001110000000000000001 /* PasscodeManager.swift */; };
+		2B0000120000000000000001 /* TransactionStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001120000000000000001 /* TransactionStorage.swift */; };
+		2B0000130000000000000001 /* EvmTransactionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001130000000000000001 /* EvmTransactionService.swift */; };
+		2B0000140000000000000001 /* SolanaTransactionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001140000000000000001 /* SolanaTransactionService.swift */; };
+		2B0000150000000000000001 /* TransactionServiceFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001150000000000000001 /* TransactionServiceFactory.swift */; };
+		2B0000160000000000000001 /* TransactionServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001160000000000000001 /* TransactionServiceProtocol.swift */; };
+		2B0000170000000000000001 /* UtxoTransactionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001170000000000000001 /* UtxoTransactionService.swift */; };
+		2B0000180000000000000001 /* UserDefaultsStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001180000000000000001 /* UserDefaultsStorage.swift */; };
+		2B0000190000000000000001 /* WalletManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0001190000000000000001 /* WalletManager.swift */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
@@ -63,6 +88,31 @@
 		2A0001080000000000000001 /* WalletCoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUI/WalletCoreBridge.swift; sourceTree = "<group>"; };
 		2A0001090000000000000001 /* SecureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUI/SecureStore.swift; sourceTree = "<group>"; };
 		2A00010A0000000000000001 /* DeviceSecurity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUI/DeviceSecurity.swift; sourceTree = "<group>"; };
+		2B0001010000000000000001 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Account.swift; sourceTree = "<group>"; };
+		2B0001020000000000000001 /* AccountFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/AccountFactory.swift; sourceTree = "<group>"; };
+		2B0001030000000000000001 /* AccountManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/AccountManager.swift; sourceTree = "<group>"; };
+		2B0001040000000000000001 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/AppConfig.swift; sourceTree = "<group>"; };
+		2B0001050000000000000001 /* AdapterFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChainAdapter/AdapterFactory.swift; sourceTree = "<group>"; };
+		2B0001060000000000000001 /* AdapterManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChainAdapter/AdapterManager.swift; sourceTree = "<group>"; };
+		2B0001070000000000000001 /* BitcoinAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChainAdapter/BitcoinAdapter.swift; sourceTree = "<group>"; };
+		2B0001080000000000000001 /* ChainAdapterProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChainAdapter/ChainAdapterProtocol.swift; sourceTree = "<group>"; };
+		2B0001090000000000000001 /* EthereumAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChainAdapter/EthereumAdapter.swift; sourceTree = "<group>"; };
+		2B00010A0000000000000001 /* JSONRPCHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChainAdapter/JSONRPCHelper.swift; sourceTree = "<group>"; };
+		2B00010B0000000000000001 /* SolanaAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChainAdapter/SolanaAdapter.swift; sourceTree = "<group>"; };
+		2B00010C0000000000000001 /* ContactBookManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ContactBookManager.swift; sourceTree = "<group>"; };
+		2B00010D0000000000000001 /* Core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Core.swift; sourceTree = "<group>"; };
+		2B00010E0000000000000001 /* CoreServiceLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/CoreServiceLocator.swift; sourceTree = "<group>"; };
+		2B00010F0000000000000001 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseManager.swift; sourceTree = "<group>"; };
+		2B0001100000000000000001 /* KeychainStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/KeychainStorage.swift; sourceTree = "<group>"; };
+		2B0001110000000000000001 /* PasscodeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/PasscodeManager.swift; sourceTree = "<group>"; };
+		2B0001120000000000000001 /* TransactionStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/TransactionStorage.swift; sourceTree = "<group>"; };
+		2B0001130000000000000001 /* EvmTransactionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Transactions/EvmTransactionService.swift; sourceTree = "<group>"; };
+		2B0001140000000000000001 /* SolanaTransactionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Transactions/SolanaTransactionService.swift; sourceTree = "<group>"; };
+		2B0001150000000000000001 /* TransactionServiceFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Transactions/TransactionServiceFactory.swift; sourceTree = "<group>"; };
+		2B0001160000000000000001 /* TransactionServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Transactions/TransactionServiceProtocol.swift; sourceTree = "<group>"; };
+		2B0001170000000000000001 /* UtxoTransactionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Transactions/UtxoTransactionService.swift; sourceTree = "<group>"; };
+		2B0001180000000000000001 /* UserDefaultsStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/UserDefaultsStorage.swift; sourceTree = "<group>"; };
+		2B0001190000000000000001 /* WalletManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/WalletManager.swift; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -140,6 +190,31 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
+				2B0001010000000000000001 /* Account.swift */,
+				2B0001020000000000000001 /* AccountFactory.swift */,
+				2B0001030000000000000001 /* AccountManager.swift */,
+				2B0001040000000000000001 /* AppConfig.swift */,
+				2B0001050000000000000001 /* AdapterFactory.swift */,
+				2B0001060000000000000001 /* AdapterManager.swift */,
+				2B0001070000000000000001 /* BitcoinAdapter.swift */,
+				2B0001080000000000000001 /* ChainAdapterProtocol.swift */,
+				2B0001090000000000000001 /* EthereumAdapter.swift */,
+				2B00010A0000000000000001 /* JSONRPCHelper.swift */,
+				2B00010B0000000000000001 /* SolanaAdapter.swift */,
+				2B00010C0000000000000001 /* ContactBookManager.swift */,
+				2B00010D0000000000000001 /* Core.swift */,
+				2B00010E0000000000000001 /* CoreServiceLocator.swift */,
+				2B00010F0000000000000001 /* DatabaseManager.swift */,
+				2B0001100000000000000001 /* KeychainStorage.swift */,
+				2B0001110000000000000001 /* PasscodeManager.swift */,
+				2B0001120000000000000001 /* TransactionStorage.swift */,
+				2B0001130000000000000001 /* EvmTransactionService.swift */,
+				2B0001140000000000000001 /* SolanaTransactionService.swift */,
+				2B0001150000000000000001 /* TransactionServiceFactory.swift */,
+				2B0001160000000000000001 /* TransactionServiceProtocol.swift */,
+				2B0001170000000000000001 /* UtxoTransactionService.swift */,
+				2B0001180000000000000001 /* UserDefaultsStorage.swift */,
+				2B0001190000000000000001 /* WalletManager.swift */,
 				2A0001010000000000000001 /* UniteTheme.swift */,
 				2A0001020000000000000001 /* WalletStore.swift */,
 				2A0001030000000000000001 /* UniteRootView.swift */,
@@ -278,6 +353,31 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
+				2B0000010000000000000001 /* Account.swift in Sources */,
+				2B0000020000000000000001 /* AccountFactory.swift in Sources */,
+				2B0000030000000000000001 /* AccountManager.swift in Sources */,
+				2B0000040000000000000001 /* AppConfig.swift in Sources */,
+				2B0000050000000000000001 /* AdapterFactory.swift in Sources */,
+				2B0000060000000000000001 /* AdapterManager.swift in Sources */,
+				2B0000070000000000000001 /* BitcoinAdapter.swift in Sources */,
+				2B0000080000000000000001 /* ChainAdapterProtocol.swift in Sources */,
+				2B0000090000000000000001 /* EthereumAdapter.swift in Sources */,
+				2B00000A0000000000000001 /* JSONRPCHelper.swift in Sources */,
+				2B00000B0000000000000001 /* SolanaAdapter.swift in Sources */,
+				2B00000C0000000000000001 /* ContactBookManager.swift in Sources */,
+				2B00000D0000000000000001 /* Core.swift in Sources */,
+				2B00000E0000000000000001 /* CoreServiceLocator.swift in Sources */,
+				2B00000F0000000000000001 /* DatabaseManager.swift in Sources */,
+				2B0000100000000000000001 /* KeychainStorage.swift in Sources */,
+				2B0000110000000000000001 /* PasscodeManager.swift in Sources */,
+				2B0000120000000000000001 /* TransactionStorage.swift in Sources */,
+				2B0000130000000000000001 /* EvmTransactionService.swift in Sources */,
+				2B0000140000000000000001 /* SolanaTransactionService.swift in Sources */,
+				2B0000150000000000000001 /* TransactionServiceFactory.swift in Sources */,
+				2B0000160000000000000001 /* TransactionServiceProtocol.swift in Sources */,
+				2B0000170000000000000001 /* UtxoTransactionService.swift in Sources */,
+				2B0000180000000000000001 /* UserDefaultsStorage.swift in Sources */,
+				2B0000190000000000000001 /* WalletManager.swift in Sources */,
 				2A0000010000000000000001 /* UniteTheme.swift in Sources */,
 				2A0000020000000000000001 /* WalletStore.swift in Sources */,
 				2A0000030000000000000001 /* UniteRootView.swift in Sources */,

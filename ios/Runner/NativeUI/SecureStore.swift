@@ -1,4 +1,12 @@
-import Foundation
+// ... existing code ...
+protocol SecureStoring {
+    func string(for key: String) throws -> String?
+    func set(_ value: String, for key: String) throws
+    func removeValue(for key: String) throws
+    func data(for key: String) throws -> Data?
+    func set(data: Data, for key: String) throws
+}
+// ... existing code ...import Foundation
 import Security
 
 protocol SecureStoring {
